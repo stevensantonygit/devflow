@@ -1,0 +1,54 @@
+{
+  "name": "DevFlow CLI",
+  "description": "A comprehensive development workflow manager that helps developers track coding sessions, manage project templates, and analyze productivity patterns",
+  "author": "Steven Santony",
+  "version": "1.0.0",
+  "setup": [
+    "chmod +x devflow",
+    "py -c \"import sqlite3, json, datetime, pathlib; print('All dependencies available')\""
+  ],
+  "run": [
+    "./devflow",
+    "py devflow.py"
+  ],
+  "features": [
+    "Time tracking with automatic project detection",
+    "Project template management",
+    "Productivity analytics and visualizations",
+    "Goal setting and progress tracking",
+    "Activity heatmap visualization",
+    "Data export capabilities",
+    "Cross-platform compatibility",
+    "Self-contained (no external dependencies)"
+  ],
+  "commands": {
+    "start": "Start a coding session",
+    "stop": "Stop current session",
+    "status": "Show current session info",
+    "stats": "View productivity analytics",
+    "template create": "Create new project template",
+    "template use": "Use existing template",
+    "goals set": "Set daily coding goal",
+    "heatmap": "Show activity heatmap",
+    "export": "Export data to various formats"
+  },
+  "demo": {
+    "script": [
+      "echo 'DevFlow CLI Demo'",
+      "./devflow start demo-project",
+      "sleep 2",
+      "./devflow status",
+      "sleep 1",
+      "./devflow stop",
+      "./devflow stats",
+      "./devflow heatmap --weeks 4"
+    ]
+  },
+  "requirements": {
+    "python": "3.6+",
+    "os": ["linux", "macos", "windows"],
+    "dependencies": "None (uses Python standard library only)"
+  },
+  "size": "~15KB",
+  "license": "MIT"
+}
