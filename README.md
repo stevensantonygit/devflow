@@ -206,7 +206,7 @@ Unlock achievements for coding milestones:
 - Weekly summaries with comprehensive metrics
 - Streak tracking for motivation
 - **Music-Productivity Correlation Analysis**: Discover which music enhances your coding flow
-- **AI-Powered Music Recommendations**: Get personalized suggestions based on your productivity patterns
+- **Music Recommendations**: Get personalized suggestions based on your productivity patterns
 - **Mood & Energy Correlation**: Track how music energy levels affect your coding performance
 
 ---
