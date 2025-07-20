@@ -22,6 +22,8 @@ A comprehensive development workflow manager that helps developers track coding 
 - **Time Block Scheduling**: Plan focused work sessions in advance
 - **Focus Analytics**: Deep analysis of concentration patterns and consistency
 - **Daily Review**: Comprehensive end-of-day productivity summary
+- **Music Integration**: Track music preferences and correlate with productivity patterns
+- **Music Analytics**: Recommendations based on coding performance and patterns
 - **Cross-Platform**: Works on Linux, macOS, and Windows
 - **Self-Contained**: No external dependencies required
 
@@ -66,6 +68,14 @@ py devflow.py
 ### Time Management
 - `devflow schedule plan TYPE DATETIME DURATION` - Schedule focused time blocks
 - `devflow schedule show` - Show upcoming scheduled blocks
+
+### Music Integration & Analytics
+- `devflow music log "TYPE" [--artist NAME] [--track NAME] [--genre GENRE] [--mood MOOD] [--energy N]` - Log currently playing music
+- `devflow music stop` - Stop current music tracking
+- `devflow music status` - Show currently tracked music
+- `devflow music rate "TYPE" PRODUCTIVITY FOCUS` - Rate music's effect on productivity (1-10 scale)
+- `devflow music analytics` - View music productivity correlations
+- `devflow music recommend` - Get AI-powered music recommendations
 
 ### Productivity Tools
 - `devflow achievements` - View unlocked achievements
@@ -132,6 +142,38 @@ devflow focus
 devflow review
 ```
 
+### Music Integration System
+Track and optimize your music choices for maximum productivity:
+
+```bash
+# Log music while coding (track what enhances your focus)
+devflow music log "Lo-fi Hip Hop" --artist "ChilledCow" --genre "Electronic" --mood "calm" --energy 6
+devflow music log "Classical Piano" --artist "Ludovico Einaudi" --mood "focused" --energy 8
+
+# Rate music's impact on your productivity
+devflow music rate "Lo-fi Hip Hop" 9 8  # productivity=9, focus=8 (out of 10)
+devflow music rate "Classical Piano" 8 9
+
+# Get recommendations based on your productivity data and patterns
+devflow music recommend
+
+# Analyze which music types boost your coding performance
+devflow music analytics
+
+# Check what's currently playing
+devflow music status
+
+# Stop tracking current music
+devflow music stop
+```
+
+**Music Analytics Features:**
+- **Productivity Correlation**: See which music types lead to longer, more productive sessions
+- **Mood & Energy Tracking**: Correlate music energy levels with coding performance
+- **Personalized Recommendations**: AI suggests music based on your historical productivity data
+- **Session Integration**: Music data automatically tied to coding sessions for comprehensive analytics
+- **Genre Analysis**: Discover which musical genres enhance your focus and creativity
+
 ## Setup Instructions
 
 1. Ensure Python 3.6+ is installed
@@ -163,6 +205,9 @@ Unlock achievements for coding milestones:
 - Productivity scoring based on consistency
 - Weekly summaries with comprehensive metrics
 - Streak tracking for motivation
+- **Music-Productivity Correlation Analysis**: Discover which music enhances your coding flow
+- **AI-Powered Music Recommendations**: Get personalized suggestions based on your productivity patterns
+- **Mood & Energy Correlation**: Track how music energy levels affect your coding performance
 
 ---
 

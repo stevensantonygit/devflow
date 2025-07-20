@@ -157,6 +157,34 @@ class DevFlowDB:
             )
         ''')
         
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS music_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER,
+                music_type TEXT NOT NULL,
+                artist TEXT,
+                track_name TEXT,
+                genre TEXT,
+                mood TEXT,
+                energy_level INTEGER DEFAULT 5,
+                start_time TIMESTAMP NOT NULL,
+                end_time TIMESTAMP,
+                FOREIGN KEY(session_id) REFERENCES sessions(id)
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS music_preferences (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                music_type TEXT NOT NULL,
+                productivity_rating INTEGER DEFAULT 5,
+                focus_rating INTEGER DEFAULT 5,
+                usage_count INTEGER DEFAULT 1,
+                last_used TEXT,
+                notes TEXT
+            )
+        ''')
+        
         conn.commit()
         conn.close()
     
@@ -556,6 +584,101 @@ class DevFlowDB:
         # Convert to consistency score (0-100, higher is better)
         consistency = max(0, 100 - cv)
         return round(consistency, 1)
+
+    def log_music(self, session_id, music_type, artist='', track_name='', genre='', mood='neutral', energy_level=5):
+        start_time = datetime.datetime.now().isoformat()
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''INSERT INTO music_sessions (session_id, music_type, artist, track_name, genre, mood, energy_level, start_time)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+            (session_id, music_type, artist, track_name, genre, mood, energy_level, start_time)
+        )
+        
+        # Update music preferences
+        today = datetime.datetime.now().strftime('%Y-%m-%d')
+        cursor.execute(
+            '''INSERT OR REPLACE INTO music_preferences (music_type, usage_count, last_used)
+               VALUES (?, COALESCE((SELECT usage_count FROM music_preferences WHERE music_type = ?), 0) + 1, ?)''',
+            (music_type, music_type, today)
+        )
+        
+        conn.commit()
+        conn.close()
+        return cursor.lastrowid
+
+    def stop_music(self, music_session_id):
+        end_time = datetime.datetime.now().isoformat()
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('UPDATE music_sessions SET end_time = ? WHERE id = ?', (end_time, music_session_id))
+        conn.commit()
+        conn.close()
+
+    def rate_music_productivity(self, music_type, productivity_rating, focus_rating):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''UPDATE music_preferences 
+               SET productivity_rating = ?, focus_rating = ?
+               WHERE music_type = ?''',
+            (productivity_rating, focus_rating, music_type)
+        )
+        conn.commit()
+        conn.close()
+
+    def get_music_analytics(self, days=30):
+        end_date = datetime.datetime.now()
+        start_date = end_date - datetime.timedelta(days=days)
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Get music productivity correlation
+        cursor.execute('''
+            SELECT m.music_type, m.artist, m.genre, m.mood,
+                   AVG(s.duration) as avg_session_duration,
+                   COUNT(*) as session_count,
+                   mp.productivity_rating, mp.focus_rating
+            FROM music_sessions m
+            JOIN sessions s ON m.session_id = s.id
+            LEFT JOIN music_preferences mp ON m.music_type = mp.music_type
+            WHERE m.start_time >= ?
+            GROUP BY m.music_type, m.artist, m.genre, m.mood
+            ORDER BY avg_session_duration DESC
+        ''', (start_date.strftime('%Y-%m-%d %H:%M:%S'),))
+        
+        results = cursor.fetchall()
+        conn.close()
+        return results
+
+    def get_music_recommendations(self, current_task_type='general'):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Get top-rated music types based on productivity and focus
+        cursor.execute('''
+            SELECT music_type, productivity_rating, focus_rating, usage_count, last_used
+            FROM music_preferences
+            WHERE productivity_rating >= 7 OR focus_rating >= 7
+            ORDER BY (productivity_rating + focus_rating) DESC, usage_count DESC
+            LIMIT 5
+        ''')
+        
+        recommendations = cursor.fetchall()
+        conn.close()
+        return recommendations
+
+    def get_current_music_session(self, session_id):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT * FROM music_sessions WHERE session_id = ? AND end_time IS NULL ORDER BY start_time DESC LIMIT 1',
+            (session_id,)
+        )
+        result = cursor.fetchone()
+        conn.close()
+        return result
 
 class DevFlowCLI:
     
@@ -1279,6 +1402,122 @@ class DevFlowCLI:
         weekly_hours = weekly_summary['total_time'] / 60 if weekly_summary['total_time'] else 0
         print(f"\n📅 This Week: {weekly_hours:.1f}h total")
 
+    def log_music(self, music_type, artist='', track_name='', genre='', mood='neutral', energy_level=5):
+        if not self.current_session:
+            print("No active session. Start a session first with 'devflow start'")
+            return
+        
+        # Stop any current music session
+        current_music = self.db.get_current_music_session(self.current_session['id'])
+        if current_music:
+            self.db.stop_music(current_music[0])
+        
+        # Start new music session
+        music_id = self.db.log_music(
+            self.current_session['id'], music_type, artist, track_name, genre, mood, energy_level
+        )
+        
+        print(f"🎵 Music logged: {music_type}")
+        if artist:
+            print(f"   Artist: {artist}")
+        if track_name:
+            print(f"   Track: {track_name}")
+        if genre:
+            print(f"   Genre: {genre}")
+        print(f"   Mood: {mood} | Energy: {energy_level}/10")
+        
+        return music_id
+
+    def stop_music(self):
+        if not self.current_session:
+            print("No active session found")
+            return
+        
+        current_music = self.db.get_current_music_session(self.current_session['id'])
+        if not current_music:
+            print("No active music session found")
+            return
+        
+        self.db.stop_music(current_music[0])
+        print(f"🎵 Stopped music: {current_music[2]}")  # music_type
+
+    def rate_music(self, music_type, productivity_rating, focus_rating):
+        self.db.rate_music_productivity(music_type, productivity_rating, focus_rating)
+        print(f"🎵 Rated '{music_type}':")
+        print(f"   Productivity: {productivity_rating}/10")
+        print(f"   Focus: {focus_rating}/10")
+
+    def show_music_analytics(self):
+        analytics = self.db.get_music_analytics(30)
+        
+        print("\n🎵 Music Productivity Analytics (Last 30 days):")
+        print("=" * 55)
+        
+        if not analytics:
+            print("No music data found. Use 'devflow music log' to start tracking!")
+            return
+        
+        print("\nTop Music Types by Session Length:")
+        print("-" * 40)
+        
+        for i, (music_type, artist, genre, mood, avg_duration, count, prod_rating, focus_rating) in enumerate(analytics[:10], 1):
+            avg_duration = avg_duration or 0  # Handle None values
+            print(f"{i}. {music_type}")
+            if artist:
+                print(f"   Artist: {artist}")
+            if genre:
+                print(f"   Genre: {genre}")
+            print(f"   Avg Session: {self.format_duration(avg_duration)} ({count} sessions)")
+            if prod_rating and focus_rating:
+                print(f"   Ratings: Productivity {prod_rating}/10, Focus {focus_rating}/10")
+            print()
+
+    def show_music_recommendations(self):
+        recommendations = self.db.get_music_recommendations()
+        
+        print("\n🎵 Music Recommendations:")
+        print("=" * 30)
+        
+        if not recommendations:
+            print("No music data available yet. Start logging music to get recommendations!")
+            return
+        
+        print("Based on your productivity patterns:")
+        print("-" * 35)
+        
+        for i, (music_type, prod_rating, focus_rating, usage_count, last_used) in enumerate(recommendations, 1):
+            overall_score = (prod_rating + focus_rating) / 2
+            print(f"{i}. {music_type}")
+            print(f"   Overall Score: {overall_score:.1f}/10")
+            print(f"   Productivity: {prod_rating}/10 | Focus: {focus_rating}/10")
+            print(f"   Used {usage_count} times | Last: {last_used}")
+            print()
+
+    def show_current_music(self):
+        if not self.current_session:
+            print("No active session")
+            return
+        
+        current_music = self.db.get_current_music_session(self.current_session['id'])
+        if not current_music:
+            print("🎵 No music currently playing")
+            return
+        
+        music_id, session_id, music_type, artist, track, genre, mood, energy, start_time, end_time = current_music
+        
+        print(f"🎵 Currently Playing: {music_type}")
+        if artist:
+            print(f"   Artist: {artist}")
+        if track:
+            print(f"   Track: {track}")
+        if genre:
+            print(f"   Genre: {genre}")
+        print(f"   Mood: {mood} | Energy: {energy}/10")
+        
+        start_dt = datetime.datetime.fromisoformat(start_time)
+        duration = int((datetime.datetime.now() - start_dt).total_seconds())
+        print(f"   Playing for: {self.format_duration(duration)}")
+
 def main():
     parser = argparse.ArgumentParser(
         description='DevFlow CLI - Comprehensive development workflow manager',
@@ -1402,6 +1641,29 @@ Examples:
     subparsers.add_parser('focus', help='Show focus and consistency analytics')
     subparsers.add_parser('review', help='Show daily review summary')
     
+    # Music integration features
+    music_parser = subparsers.add_parser('music', help='Music productivity tracking')
+    music_subparsers = music_parser.add_subparsers(dest='music_action')
+    
+    log_music_parser = music_subparsers.add_parser('log', help='Log current music')
+    log_music_parser.add_argument('type', help='Music type (e.g., "Lo-fi Hip Hop", "Classical", "Ambient")')
+    log_music_parser.add_argument('--artist', default='', help='Artist name')
+    log_music_parser.add_argument('--track', default='', help='Track name')
+    log_music_parser.add_argument('--genre', default='', help='Music genre')
+    log_music_parser.add_argument('--mood', default='neutral', choices=['energetic', 'calm', 'focused', 'creative', 'neutral'], help='Current mood')
+    log_music_parser.add_argument('--energy', type=int, default=5, choices=range(1, 11), help='Energy level 1-10')
+    
+    music_subparsers.add_parser('stop', help='Stop current music session')
+    music_subparsers.add_parser('status', help='Show current music status')
+    
+    rate_music_parser = music_subparsers.add_parser('rate', help='Rate music productivity impact')
+    rate_music_parser.add_argument('type', help='Music type to rate')
+    rate_music_parser.add_argument('productivity', type=int, choices=range(1, 11), help='Productivity rating 1-10')
+    rate_music_parser.add_argument('focus', type=int, choices=range(1, 11), help='Focus rating 1-10')
+    
+    music_subparsers.add_parser('analytics', help='Show music productivity analytics')
+    music_subparsers.add_parser('recommend', help='Get music recommendations')
+    
     if len(sys.argv) == 1:
         print("DevFlow CLI - Development Workflow Manager")
         print("=" * 50)
@@ -1433,6 +1695,12 @@ Examples:
         print("  schedule show      - Show upcoming schedule")
         print("  focus              - Show focus analytics")
         print("  review             - Show daily review")
+        print("  music log <type>   - Log music you're listening to")
+        print("  music stop         - Stop current music session")
+        print("  music status       - Show current music")
+        print("  music rate         - Rate music productivity impact")
+        print("  music analytics    - Show music productivity stats")
+        print("  music recommend    - Get music recommendations")
         print("\nUse 'devflow <command> --help' for detailed help")
         return
     
@@ -1502,6 +1770,19 @@ Examples:
         cli.show_focus_report()
     elif args.command == 'review':
         cli.show_daily_review()
+    elif args.command == 'music':
+        if args.music_action == 'log':
+            cli.log_music(args.type, args.artist, args.track, args.genre, args.mood, args.energy)
+        elif args.music_action == 'stop':
+            cli.stop_music()
+        elif args.music_action == 'status':
+            cli.show_current_music()
+        elif args.music_action == 'rate':
+            cli.rate_music(args.type, args.productivity, args.focus)
+        elif args.music_action == 'analytics':
+            cli.show_music_analytics()
+        elif args.music_action == 'recommend':
+            cli.show_music_recommendations()
 
 if __name__ == '__main__':
     main()
