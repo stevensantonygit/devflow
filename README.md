@@ -23,7 +23,9 @@ A comprehensive development workflow manager that helps developers track coding 
 - **Focus Analytics**: Deep analysis of concentration patterns and consistency
 - **Daily Review**: Comprehensive end-of-day productivity summary
 - **Music Integration**: Track music preferences and correlate with productivity patterns
-- **Music Analytics**: Recommendations based on coding performance and patterns
+- **Music Analytics**: AI-powered recommendations based on coding performance
+- **Voice Commands**: Hands-free session management and voice-to-text transcription
+- **Voice Analytics**: Track and analyze voice command usage patterns
 - **Cross-Platform**: Works on Linux, macOS, and Windows
 - **Self-Contained**: No external dependencies required
 
@@ -76,6 +78,13 @@ py devflow.py
 - `devflow music rate "TYPE" PRODUCTIVITY FOCUS` - Rate music's effect on productivity (1-10 scale)
 - `devflow music analytics` - View music productivity correlations
 - `devflow music recommend` - Get AI-powered music recommendations
+
+### Voice Commands & Transcription
+- `devflow voice enable [--sensitivity N] [--language LANG] [--wake-word WORD]` - Enable voice commands
+- `devflow voice disable` - Disable voice commands
+- `devflow voice status` - Show voice command settings and usage history
+- `devflow voice interactive` - Start interactive voice command mode
+- `devflow voice transcribe --to-notes [--text TEXT]` - Convert speech to session notes
 
 ### Productivity Tools
 - `devflow achievements` - View unlocked achievements
@@ -154,7 +163,7 @@ devflow music log "Classical Piano" --artist "Ludovico Einaudi" --mood "focused"
 devflow music rate "Lo-fi Hip Hop" 9 8  # productivity=9, focus=8 (out of 10)
 devflow music rate "Classical Piano" 8 9
 
-# Get recommendations based on your productivity data and patterns
+# Get AI-powered recommendations based on your productivity data
 devflow music recommend
 
 # Analyze which music types boost your coding performance
@@ -173,6 +182,42 @@ devflow music stop
 - **Personalized Recommendations**: AI suggests music based on your historical productivity data
 - **Session Integration**: Music data automatically tied to coding sessions for comprehensive analytics
 - **Genre Analysis**: Discover which musical genres enhance your focus and creativity
+
+### Voice Command System
+Experience hands-free productivity management with advanced voice integration:
+
+```bash
+# Enable voice commands with custom settings
+devflow voice enable --sensitivity 0.8 --language en-US --wake-word "devflow"
+
+# Start interactive voice command mode
+devflow voice interactive
+
+# Then use natural voice commands:
+# "DevFlow start session my new project"
+# "DevFlow log music jazz"
+# "DevFlow status"
+# "DevFlow note completed authentication module"
+# "DevFlow stop session"
+
+# Convert speech to session notes
+devflow voice transcribe --to-notes
+
+# Check voice command settings and history
+devflow voice status
+
+# Disable voice commands
+devflow voice disable
+```
+
+**Voice Command Features:**
+- **Natural Language Processing**: Understand conversational commands like "Hey DevFlow, start a session"
+- **Hands-Free Operation**: Manage sessions without touching the keyboard
+- **Voice-to-Text Transcription**: Convert speech directly to session notes
+- **Customizable Wake Words**: Set personalized activation phrases
+- **Multi-Language Support**: Configure for different languages and accents
+- **Command History**: Track and analyze voice command usage patterns
+- **Interactive Mode**: Real-time voice command processing and feedback
 
 ## Setup Instructions
 
@@ -206,8 +251,11 @@ Unlock achievements for coding milestones:
 - Weekly summaries with comprehensive metrics
 - Streak tracking for motivation
 - **Music-Productivity Correlation Analysis**: Discover which music enhances your coding flow
-- **Music Recommendations**: Get personalized suggestions based on your productivity patterns
+- **AI-Powered Music Recommendations**: Get personalized suggestions based on your productivity patterns
 - **Mood & Energy Correlation**: Track how music energy levels affect your coding performance
+- **Voice Command Analytics**: Analyze voice command usage patterns and effectiveness
+- **Speech-to-Text Integration**: Convert natural speech to actionable session data
+- **Hands-Free Productivity**: Manage entire coding sessions without keyboard interaction
 
 ---
 

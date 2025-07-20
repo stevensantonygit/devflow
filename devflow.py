@@ -7,6 +7,8 @@ import argparse
 import sqlite3
 import hashlib
 import subprocess
+import threading
+import re
 from pathlib import Path
 from collections import defaultdict, Counter
 
@@ -182,6 +184,29 @@ class DevFlowDB:
                 usage_count INTEGER DEFAULT 1,
                 last_used TEXT,
                 notes TEXT
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS voice_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                enabled BOOLEAN DEFAULT 0,
+                sensitivity REAL DEFAULT 0.7,
+                language TEXT DEFAULT 'en-US',
+                wake_word TEXT DEFAULT 'devflow',
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS voice_commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                command_text TEXT NOT NULL,
+                interpreted_command TEXT NOT NULL,
+                session_id INTEGER,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                confidence REAL DEFAULT 0.0,
+                FOREIGN KEY(session_id) REFERENCES sessions(id)
             )
         ''')
         
@@ -680,11 +705,208 @@ class DevFlowDB:
         conn.close()
         return result
 
+    def enable_voice_commands(self, enabled=True, sensitivity=0.7, language='en-US', wake_word='devflow'):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Insert or update voice settings
+        cursor.execute('''
+            INSERT OR REPLACE INTO voice_settings (id, enabled, sensitivity, language, wake_word, last_updated)
+            VALUES (1, ?, ?, ?, ?, ?)
+        ''', (enabled, sensitivity, language, wake_word, datetime.datetime.now().isoformat()))
+        
+        conn.commit()
+        conn.close()
+
+    def get_voice_settings(self):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM voice_settings WHERE id = 1')
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return {
+                'enabled': bool(result[1]),
+                'sensitivity': result[2],
+                'language': result[3],
+                'wake_word': result[4],
+                'last_updated': result[5]
+            }
+        return None
+
+    def log_voice_command(self, command_text, interpreted_command, session_id=None, confidence=0.0):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT INTO voice_commands (command_text, interpreted_command, session_id, confidence) VALUES (?, ?, ?, ?)',
+            (command_text, interpreted_command, session_id, confidence)
+        )
+        conn.commit()
+        conn.close()
+
+    def get_voice_command_history(self, limit=20):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT * FROM voice_commands ORDER BY timestamp DESC LIMIT ?',
+            (limit,)
+        )
+        results = cursor.fetchall()
+        conn.close()
+        return results
+
+class VoiceManager:
+    """Simple voice command manager using basic text patterns"""
+    
+    def __init__(self, db):
+        self.db = db
+        self.listening = False
+        self.voice_thread = None
+        
+        # Voice command patterns
+        self.command_patterns = {
+            r'(?:hey\s+)?devflow\s+start(?:\s+session)?(?:\s+(.+))?': 'start_session',
+            r'(?:hey\s+)?devflow\s+stop(?:\s+session)?': 'stop_session',
+            r'(?:hey\s+)?devflow\s+status': 'show_status',
+            r'(?:hey\s+)?devflow\s+log\s+music\s+(.+)': 'log_music',
+            r'(?:hey\s+)?devflow\s+stop\s+music': 'stop_music',
+            r'(?:hey\s+)?devflow\s+note\s+(.+)': 'add_note',
+            r'(?:hey\s+)?devflow\s+stats': 'show_stats',
+            r'(?:hey\s+)?devflow\s+achievements': 'show_achievements',
+            r'(?:hey\s+)?devflow\s+help': 'show_help',
+        }
+    
+    def enable_voice_listening(self):
+        """Enable voice command listening (simulation)"""
+        settings = self.db.get_voice_settings()
+        if not settings:
+            self.db.enable_voice_commands(True)
+            settings = self.db.get_voice_settings()
+        
+        if settings['enabled']:
+            print("🎤 Voice commands enabled!")
+            print("Available voice commands:")
+            print("  'DevFlow start session [project name]'")
+            print("  'DevFlow stop session'")
+            print("  'DevFlow status'")
+            print("  'DevFlow log music [type]'")
+            print("  'DevFlow stop music'")
+            print("  'DevFlow note [your note]'")
+            print("  'DevFlow stats'")
+            print("  'DevFlow achievements'")
+            print("\nSimulation mode: Type voice commands to test them!")
+            return True
+        return False
+    
+    def disable_voice_listening(self):
+        """Disable voice command listening"""
+        self.db.enable_voice_commands(False)
+        self.listening = False
+        print("🔇 Voice commands disabled")
+    
+    def parse_voice_command(self, text):
+        """Parse voice command text and return action"""
+        text = text.lower().strip()
+        
+        for pattern, action in self.command_patterns.items():
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                params = match.groups() if match.groups() else []
+                return action, params, 0.8  # Simulated confidence
+        
+        return None, [], 0.0
+    
+    def process_voice_input(self, text, cli_instance):
+        """Process voice input and execute command"""
+        action, params, confidence = self.parse_voice_command(text)
+        
+        if action:
+            # Log the voice command
+            session_id = cli_instance.current_session['id'] if cli_instance.current_session else None
+            self.db.log_voice_command(text, f"{action}:{params}", session_id, confidence)
+            
+            print(f"🎤 Voice command recognized: '{text}' (confidence: {confidence:.1f})")
+            
+            # Execute the command
+            try:
+                if action == 'start_session':
+                    project_name = params[0] if params and params[0] else None
+                    cli_instance.start_session(project_name)
+                elif action == 'stop_session':
+                    cli_instance.stop_session()
+                elif action == 'show_status':
+                    cli_instance.show_status()
+                elif action == 'log_music':
+                    music_type = params[0] if params else "Unknown"
+                    cli_instance.log_music(music_type)
+                elif action == 'stop_music':
+                    cli_instance.stop_music()
+                elif action == 'add_note':
+                    note_content = params[0] if params else "Voice note"
+                    cli_instance.add_session_note(note_content)
+                elif action == 'show_stats':
+                    cli_instance.show_stats()
+                elif action == 'show_achievements':
+                    cli_instance.show_achievements()
+                elif action == 'show_help':
+                    self.show_voice_help()
+                else:
+                    print(f"❓ Command '{action}' not implemented yet")
+                    
+            except Exception as e:
+                print(f"❌ Error executing voice command: {e}")
+        else:
+            print(f"❓ Voice command not recognized: '{text}'")
+            print("Try saying: 'DevFlow start session' or 'DevFlow status'")
+    
+    def show_voice_help(self):
+        """Show voice commands help"""
+        print("🎤 Voice Commands Help:")
+        print("=" * 30)
+        print("Session Management:")
+        print("  'DevFlow start session [project name]'")
+        print("  'DevFlow stop session'")
+        print("  'DevFlow status'")
+        print("\nMusic Integration:")
+        print("  'DevFlow log music [type]'")
+        print("  'DevFlow stop music'")
+        print("\nProductivity:")
+        print("  'DevFlow note [your note text]'")
+        print("  'DevFlow stats'")
+        print("  'DevFlow achievements'")
+        print("\nTip: You can also say 'Hey DevFlow' before any command!")
+    
+    def voice_to_text_simulation(self, text):
+        """Simulate voice-to-text conversion"""
+        # In a real implementation, this would use actual speech recognition
+        print(f"🎤 Converting speech to text: '{text}'")
+        return text
+    
+    def start_interactive_mode(self, cli_instance):
+        """Start interactive voice command mode"""
+        print("🎤 Interactive Voice Mode Started!")
+        print("Type voice commands (or 'quit' to exit):")
+        print("Example: 'DevFlow start session my project'")
+        
+        while True:
+            try:
+                voice_input = input("\n🎤 Voice Input: ").strip()
+                if voice_input.lower() in ['quit', 'exit', 'stop']:
+                    print("👋 Exiting voice mode")
+                    break
+                elif voice_input:
+                    self.process_voice_input(voice_input, cli_instance)
+            except KeyboardInterrupt:
+                print("\n👋 Exiting voice mode")
+                break
+
 class DevFlowCLI:
     
     def __init__(self):
         self.db = DevFlowDB()
         self.current_session = None
+        self.voice_manager = VoiceManager(self.db)
         self.load_current_session()
     
     def load_current_session(self):
@@ -1518,6 +1740,103 @@ class DevFlowCLI:
         duration = int((datetime.datetime.now() - start_dt).total_seconds())
         print(f"   Playing for: {self.format_duration(duration)}")
 
+    # Voice Command Methods
+    def enable_voice_commands(self, sensitivity=0.7, language='en-US', wake_word='devflow'):
+        """Enable voice commands with specified settings"""
+        self.db.enable_voice_commands(True, sensitivity, language, wake_word)
+        success = self.voice_manager.enable_voice_listening()
+        
+        if success:
+            print(f"🎤 Voice commands enabled!")
+            print(f"   Wake word: '{wake_word}'")
+            print(f"   Language: {language}")
+            print(f"   Sensitivity: {sensitivity}")
+            print("\nYou can now use voice commands like:")
+            print("  'DevFlow start session'")
+            print("  'DevFlow log music jazz'")
+            print("  'DevFlow status'")
+        else:
+            print("❌ Failed to enable voice commands")
+
+    def disable_voice_commands(self):
+        """Disable voice commands"""
+        self.voice_manager.disable_voice_listening()
+
+    def voice_interactive_mode(self):
+        """Start interactive voice command mode"""
+        settings = self.db.get_voice_settings()
+        if not settings or not settings['enabled']:
+            print("❌ Voice commands are not enabled.")
+            print("Run 'devflow voice enable' first.")
+            return
+        
+        self.voice_manager.start_interactive_mode(self)
+
+    def voice_transcribe_to_notes(self, text=None):
+        """Convert voice input to session notes"""
+        if not self.current_session:
+            print("No active session. Start a session first with 'devflow start'")
+            return
+        
+        if not text:
+            print("🎤 Voice Transcription Mode")
+            print("Speak your note (or type it for simulation):")
+            try:
+                text = input("📝 Note: ").strip()
+            except KeyboardInterrupt:
+                print("\n❌ Transcription cancelled")
+                return
+        
+        if text:
+            # Process the text (in real implementation, this would be speech-to-text)
+            processed_text = self.voice_manager.voice_to_text_simulation(text)
+            
+            # Add the note
+            self.add_session_note(processed_text)
+            
+            # Log the voice command
+            self.db.log_voice_command(
+                f"Transcribe: {text}", 
+                f"add_note:{processed_text}", 
+                self.current_session['id'], 
+                0.9
+            )
+            
+            print("✅ Voice note added successfully!")
+        else:
+            print("❌ No text provided for transcription")
+
+    def show_voice_status(self):
+        """Show voice command settings and statistics"""
+        settings = self.db.get_voice_settings()
+        
+        print("🎤 Voice Command Status:")
+        print("=" * 30)
+        
+        if settings:
+            status = "Enabled" if settings['enabled'] else "Disabled"
+            print(f"Status: {status}")
+            print(f"Wake word: '{settings['wake_word']}'")
+            print(f"Language: {settings['language']}")
+            print(f"Sensitivity: {settings['sensitivity']}")
+            print(f"Last updated: {settings['last_updated']}")
+        else:
+            print("Status: Not configured")
+            print("Run 'devflow voice enable' to set up voice commands")
+        
+        # Show recent voice commands
+        history = self.db.get_voice_command_history(5)
+        if history:
+            print("\nRecent Voice Commands:")
+            print("-" * 20)
+            for cmd in history:
+                timestamp = cmd[4]
+                command_text = cmd[1]
+                confidence = cmd[5]
+                print(f"  {timestamp}: '{command_text}' (confidence: {confidence:.1f})")
+        else:
+            print("\nNo voice commands used yet")
+
 def main():
     parser = argparse.ArgumentParser(
         description='DevFlow CLI - Comprehensive development workflow manager',
@@ -1664,6 +1983,23 @@ Examples:
     music_subparsers.add_parser('analytics', help='Show music productivity analytics')
     music_subparsers.add_parser('recommend', help='Get music recommendations')
     
+    # Voice command features
+    voice_parser = subparsers.add_parser('voice', help='Voice command management')
+    voice_subparsers = voice_parser.add_subparsers(dest='voice_action')
+    
+    voice_enable_parser = voice_subparsers.add_parser('enable', help='Enable voice commands')
+    voice_enable_parser.add_argument('--sensitivity', type=float, default=0.7, help='Voice sensitivity (0.1-1.0)')
+    voice_enable_parser.add_argument('--language', default='en-US', help='Language code (e.g., en-US, es-ES)')
+    voice_enable_parser.add_argument('--wake-word', default='devflow', help='Wake word to activate commands')
+    
+    voice_subparsers.add_parser('disable', help='Disable voice commands')
+    voice_subparsers.add_parser('status', help='Show voice command status and settings')
+    voice_subparsers.add_parser('interactive', help='Start interactive voice command mode')
+    
+    voice_transcribe_parser = voice_subparsers.add_parser('transcribe', help='Voice-to-text transcription')
+    voice_transcribe_parser.add_argument('--to-notes', action='store_true', help='Convert speech directly to session notes')
+    voice_transcribe_parser.add_argument('--text', help='Text to simulate voice transcription')
+    
     if len(sys.argv) == 1:
         print("DevFlow CLI - Development Workflow Manager")
         print("=" * 50)
@@ -1701,6 +2037,10 @@ Examples:
         print("  music rate         - Rate music productivity impact")
         print("  music analytics    - Show music productivity stats")
         print("  music recommend    - Get music recommendations")
+        print("  voice enable       - Enable voice commands")
+        print("  voice interactive  - Start voice command mode")
+        print("  voice transcribe   - Voice-to-text for notes")
+        print("  voice status       - Show voice settings")
         print("\nUse 'devflow <command> --help' for detailed help")
         return
     
@@ -1783,6 +2123,22 @@ Examples:
             cli.show_music_analytics()
         elif args.music_action == 'recommend':
             cli.show_music_recommendations()
+    elif args.command == 'voice':
+        if args.voice_action == 'enable':
+            cli.enable_voice_commands(args.sensitivity, args.language, getattr(args, 'wake_word', 'devflow'))
+        elif args.voice_action == 'disable':
+            cli.disable_voice_commands()
+        elif args.voice_action == 'status':
+            cli.show_voice_status()
+        elif args.voice_action == 'interactive':
+            cli.voice_interactive_mode()
+        elif args.voice_action == 'transcribe':
+            if args.to_notes:
+                cli.voice_transcribe_to_notes(getattr(args, 'text', None))
+            else:
+                print("🎤 Voice transcription mode")
+                print("Use --to-notes to convert speech to session notes")
+                print("Example: devflow voice transcribe --to-notes")
 
 if __name__ == '__main__':
     main()
