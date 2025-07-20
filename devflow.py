@@ -109,6 +109,54 @@ class DevFlowDB:
             )
         ''')
         
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS habits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                habit_name TEXT NOT NULL,
+                description TEXT,
+                target_frequency INTEGER DEFAULT 1,
+                created_date TEXT NOT NULL,
+                active BOOLEAN DEFAULT 1
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS habit_completions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                habit_id INTEGER,
+                completion_date TEXT NOT NULL,
+                notes TEXT,
+                FOREIGN KEY(habit_id) REFERENCES habits(id)
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS milestones (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_name TEXT NOT NULL,
+                milestone_name TEXT NOT NULL,
+                description TEXT,
+                target_hours INTEGER,
+                completed BOOLEAN DEFAULT 0,
+                completed_date TEXT,
+                created_date TEXT NOT NULL
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS time_blocks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_name TEXT NOT NULL,
+                block_type TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                planned_duration INTEGER,
+                actual_duration INTEGER,
+                completed BOOLEAN DEFAULT 0,
+                notes TEXT
+            )
+        ''')
+        
         conn.commit()
         conn.close()
     
@@ -338,6 +386,176 @@ class DevFlowDB:
             hour_data[int(hour)] = minutes
         
         return hour_data
+
+    def create_habit(self, habit_name, description, target_frequency):
+        today = datetime.datetime.now().strftime('%Y-%m-%d')
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT INTO habits (habit_name, description, target_frequency, created_date) VALUES (?, ?, ?, ?)',
+            (habit_name, description, target_frequency, today)
+        )
+        conn.commit()
+        conn.close()
+
+    def complete_habit(self, habit_name, notes=''):
+        today = datetime.datetime.now().strftime('%Y-%m-%d')
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT id FROM habits WHERE habit_name = ? AND active = 1', (habit_name,))
+        habit = cursor.fetchone()
+        
+        if habit:
+            cursor.execute(
+                'INSERT OR IGNORE INTO habit_completions (habit_id, completion_date, notes) VALUES (?, ?, ?)',
+                (habit[0], today, notes)
+            )
+            conn.commit()
+        
+        conn.close()
+        return habit is not None
+
+    def get_habit_status(self, days=7):
+        end_date = datetime.datetime.now()
+        start_date = end_date - datetime.timedelta(days=days)
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT h.habit_name, h.target_frequency, h.description,
+                   COUNT(hc.completion_date) as completions
+            FROM habits h
+            LEFT JOIN habit_completions hc ON h.id = hc.habit_id 
+                AND hc.completion_date >= ?
+            WHERE h.active = 1
+            GROUP BY h.id, h.habit_name, h.target_frequency, h.description
+        ''', (start_date.strftime('%Y-%m-%d'),))
+        
+        results = cursor.fetchall()
+        conn.close()
+        return results
+
+    def create_milestone(self, project_name, milestone_name, description, target_hours):
+        today = datetime.datetime.now().strftime('%Y-%m-%d')
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            'INSERT INTO milestones (project_name, milestone_name, description, target_hours, created_date) VALUES (?, ?, ?, ?, ?)',
+            (project_name, milestone_name, description, target_hours, today)
+        )
+        conn.commit()
+        conn.close()
+
+    def check_milestone_progress(self, project_name):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT m.id, m.milestone_name, m.description, m.target_hours, m.completed,
+                   COALESCE(SUM(s.duration), 0) / 60.0 as hours_completed
+            FROM milestones m
+            LEFT JOIN sessions s ON m.project_name = s.project_name AND m.created_date <= DATE(s.start_time)
+            WHERE m.project_name = ? AND m.completed = 0
+            GROUP BY m.id, m.milestone_name, m.description, m.target_hours, m.completed
+        ''', (project_name,))
+        
+        milestones = cursor.fetchall()
+        
+        # Auto-complete milestones that have reached their target
+        for milestone in milestones:
+            if milestone[5] >= milestone[3]:  # hours_completed >= target_hours
+                today = datetime.datetime.now().strftime('%Y-%m-%d')
+                cursor.execute(
+                    'UPDATE milestones SET completed = 1, completed_date = ? WHERE id = ?',
+                    (today, milestone[0])
+                )
+                print(f"🎯 Milestone completed: {milestone[1]}")
+        
+        conn.commit()
+        conn.close()
+        return milestones
+
+    def schedule_time_block(self, project_name, block_type, start_time, duration_minutes, notes=''):
+        start_dt = datetime.datetime.strptime(start_time, '%Y-%m-%d %H:%M')
+        end_dt = start_dt + datetime.timedelta(minutes=duration_minutes)
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''INSERT INTO time_blocks (project_name, block_type, start_time, end_time, 
+               planned_duration, notes) VALUES (?, ?, ?, ?, ?, ?)''',
+            (project_name, block_type, start_time, end_dt.strftime('%Y-%m-%d %H:%M'), 
+             duration_minutes, notes)
+        )
+        conn.commit()
+        conn.close()
+
+    def get_upcoming_blocks(self, days=3):
+        end_date = datetime.datetime.now() + datetime.timedelta(days=days)
+        now = datetime.datetime.now()
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''SELECT * FROM time_blocks 
+               WHERE start_time >= ? AND start_time <= ? AND completed = 0
+               ORDER BY start_time''',
+            (now.strftime('%Y-%m-%d %H:%M'), end_date.strftime('%Y-%m-%d %H:%M'))
+        )
+        
+        blocks = cursor.fetchall()
+        conn.close()
+        return blocks
+
+    def get_focus_analytics(self, project_name, days=7):
+        end_date = datetime.datetime.now()
+        start_date = end_date - datetime.timedelta(days=days)
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Session length analysis
+        cursor.execute(
+            '''SELECT duration FROM sessions 
+               WHERE project_name = ? AND start_time >= ? AND end_time IS NOT NULL
+               ORDER BY duration''',
+            (project_name, start_date.strftime('%Y-%m-%d %H:%M:%S'))
+        )
+        durations = [row[0] for row in cursor.fetchall()]
+        
+        # Interruption analysis (sessions < 15 minutes)
+        interruptions = len([d for d in durations if d < 900])
+        
+        # Flow state sessions (sessions > 90 minutes)
+        flow_sessions = len([d for d in durations if d > 5400])
+        
+        conn.close()
+        
+        analytics = {
+            'total_sessions': len(durations),
+            'avg_session_length': sum(durations) / len(durations) if durations else 0,
+            'interruption_rate': (interruptions / len(durations)) * 100 if durations else 0,
+            'flow_sessions': flow_sessions,
+            'consistency_score': self.calculate_consistency_score(durations)
+        }
+        
+        return analytics
+
+    def calculate_consistency_score(self, durations):
+        if len(durations) < 2:
+            return 0
+        
+        # Calculate coefficient of variation (lower is more consistent)
+        mean_duration = sum(durations) / len(durations)
+        variance = sum((d - mean_duration) ** 2 for d in durations) / len(durations)
+        std_dev = variance ** 0.5
+        cv = (std_dev / mean_duration) * 100 if mean_duration > 0 else 100
+        
+        # Convert to consistency score (0-100, higher is better)
+        consistency = max(0, 100 - cv)
+        return round(consistency, 1)
 
 class DevFlowCLI:
     
@@ -887,6 +1105,180 @@ class DevFlowCLI:
         else:
             print("No coding activity in the last 7 days. Start a session to see insights!")
 
+    def create_habit(self, habit_name, description='', target_frequency=1):
+        self.db.create_habit(habit_name, description, target_frequency)
+        print(f"Habit '{habit_name}' created successfully!")
+        print(f"Target: {target_frequency} times per week")
+
+    def complete_habit(self, habit_name, notes=''):
+        if self.db.complete_habit(habit_name, notes):
+            print(f"✅ Habit '{habit_name}' completed for today!")
+        else:
+            print(f"Habit '{habit_name}' not found or already completed today")
+
+    def show_habits(self):
+        habits = self.db.get_habit_status(7)
+        
+        print("\nHabit Tracker (Last 7 days):")
+        print("=" * 40)
+        
+        if not habits:
+            print("No habits created. Use 'devflow habits create' to start!")
+            return
+        
+        for habit_name, target, description, completions in habits:
+            completion_rate = (completions / target) * 100 if target > 0 else 0
+            status = "✅" if completions >= target else "⏳"
+            
+            print(f"{status} {habit_name}")
+            print(f"   {description}")
+            print(f"   Progress: {completions}/{target} ({completion_rate:.1f}%)")
+            
+            # Visual progress bar
+            progress_bars = int((completions / target) * 10) if target > 0 else 0
+            progress_bar = "█" * progress_bars + "░" * (10 - progress_bars)
+            print(f"   [{progress_bar}]")
+            print()
+
+    def create_milestone(self, project_name, milestone_name, description, target_hours):
+        self.db.create_milestone(project_name, milestone_name, description, target_hours)
+        print(f"Milestone '{milestone_name}' created for '{project_name}'")
+        print(f"Target: {target_hours} hours")
+
+    def show_milestones(self, project_name=None):
+        if not project_name:
+            project_name = self.get_current_project_name()
+        
+        milestones = self.db.check_milestone_progress(project_name)
+        
+        print(f"\nMilestones for '{project_name}':")
+        print("=" * 40)
+        
+        if not milestones:
+            print("No milestones set. Use 'devflow milestones create' to add one!")
+            return
+        
+        for milestone in milestones:
+            milestone_id, name, desc, target, completed, hours_done = milestone
+            progress = (hours_done / target) * 100 if target > 0 else 0
+            
+            status = "✅" if completed else "🎯"
+            print(f"{status} {name}")
+            print(f"   {desc}")
+            print(f"   Progress: {hours_done:.1f}h / {target}h ({progress:.1f}%)")
+            
+            # Progress visualization
+            progress_bars = int(progress / 10)
+            bar = "█" * progress_bars + "░" * (10 - progress_bars)
+            print(f"   [{bar}] {progress:.1f}%")
+            print()
+
+    def schedule_block(self, project_name, block_type, start_time, duration, notes=''):
+        if not project_name:
+            project_name = self.get_current_project_name()
+        
+        self.db.schedule_time_block(project_name, block_type, start_time, duration, notes)
+        print(f"Time block scheduled:")
+        print(f"   Project: {project_name}")
+        print(f"   Type: {block_type}")
+        print(f"   Time: {start_time}")
+        print(f"   Duration: {duration} minutes")
+
+    def show_schedule(self):
+        blocks = self.db.get_upcoming_blocks(3)
+        
+        print("\nUpcoming Time Blocks (Next 3 days):")
+        print("=" * 45)
+        
+        if not blocks:
+            print("No scheduled time blocks. Use 'devflow schedule' to plan your time!")
+            return
+        
+        current_day = None
+        for block in blocks:
+            block_id, project, block_type, start_time, end_time, planned, actual, completed, notes = block
+            
+            start_dt = datetime.datetime.strptime(start_time, '%Y-%m-%d %H:%M')
+            day = start_dt.strftime('%A, %B %d')
+            
+            if day != current_day:
+                print(f"\n📅 {day}")
+                print("-" * 30)
+                current_day = day
+            
+            time_range = f"{start_dt.strftime('%H:%M')} - {datetime.datetime.strptime(end_time, '%Y-%m-%d %H:%M').strftime('%H:%M')}"
+            print(f"   {time_range} | {project} ({block_type})")
+            if notes:
+                print(f"     📝 {notes}")
+
+    def show_focus_report(self, project_name=None):
+        if not project_name:
+            project_name = self.get_current_project_name()
+        
+        analytics = self.db.get_focus_analytics(project_name, 7)
+        
+        print(f"\nFocus Analytics for '{project_name}' (Last 7 days):")
+        print("=" * 50)
+        
+        if analytics['total_sessions'] == 0:
+            print("No sessions found. Start coding to see your focus analytics!")
+            return
+        
+        print(f"Total Sessions: {analytics['total_sessions']}")
+        print(f"Average Session: {self.format_duration(analytics['avg_session_length'])}")
+        print(f"Flow Sessions (90+ min): {analytics['flow_sessions']}")
+        print(f"Interruption Rate: {analytics['interruption_rate']:.1f}%")
+        print(f"Consistency Score: {analytics['consistency_score']}%")
+        
+        # Focus rating
+        if analytics['consistency_score'] >= 80 and analytics['interruption_rate'] < 20:
+            print("\n🔥 EXCELLENT FOCUS - You're in the zone!")
+        elif analytics['consistency_score'] >= 60 and analytics['interruption_rate'] < 40:
+            print("\n👍 GOOD FOCUS - Keep up the great work!")
+        elif analytics['consistency_score'] >= 40:
+            print("\n📈 IMPROVING FOCUS - Getting better!")
+        else:
+            print("\n💪 DEVELOPING FOCUS - Room for improvement!")
+
+    def show_daily_review(self):
+        today = datetime.datetime.now().strftime('%Y-%m-%d')
+        project_name = self.get_current_project_name()
+        
+        print(f"\nDaily Review - {today}")
+        print("=" * 40)
+        
+        # Today's coding time
+        today_sessions = self.db.execute_query(
+            "SELECT SUM(duration), COUNT(*) FROM sessions WHERE DATE(start_time) = ? AND project_name = ? AND end_time IS NOT NULL",
+            (today, project_name), fetch=True
+        )[0]
+        
+        total_time = today_sessions[0] or 0
+        session_count = today_sessions[1] or 0
+        
+        print(f"📊 Coding Time: {self.format_duration(total_time)}")
+        print(f"📈 Sessions: {session_count}")
+        
+        # Habit completions
+        habits = self.db.get_habit_status(1)
+        completed_habits = sum(1 for h in habits if h[3] > 0)
+        total_habits = len(habits)
+        
+        print(f"✅ Habits: {completed_habits}/{total_habits} completed")
+        
+        # Current streak
+        streak = self.db.get_current_streak()
+        print(f"🔥 Streak: {streak} days")
+        
+        # Productivity score
+        score = self.db.get_productivity_score(project_name, 1)
+        print(f"⭐ Today's Score: {score}%")
+        
+        # Weekly goals progress
+        weekly_summary = self.db.get_weekly_summary(project_name)
+        weekly_hours = weekly_summary['total_time'] / 60 if weekly_summary['total_time'] else 0
+        print(f"\n📅 This Week: {weekly_hours:.1f}h total")
+
 def main():
     parser = argparse.ArgumentParser(
         description='DevFlow CLI - Comprehensive development workflow manager',
@@ -969,6 +1361,47 @@ Examples:
     
     subparsers.add_parser('insights', help='Show advanced analytics and insights')
     
+    # New powerful features
+    habits_parser = subparsers.add_parser('habits', help='Habit tracking system')
+    habits_subparsers = habits_parser.add_subparsers(dest='habits_action')
+    
+    create_habit_parser = habits_subparsers.add_parser('create', help='Create new habit')
+    create_habit_parser.add_argument('name', help='Habit name')
+    create_habit_parser.add_argument('--description', default='', help='Habit description')
+    create_habit_parser.add_argument('--frequency', type=int, default=1, help='Target frequency per week')
+    
+    complete_habit_parser = habits_subparsers.add_parser('complete', help='Mark habit as completed today')
+    complete_habit_parser.add_argument('name', help='Habit name')
+    complete_habit_parser.add_argument('--notes', default='', help='Optional notes')
+    
+    habits_subparsers.add_parser('status', help='Show habit completion status')
+    
+    milestones_parser = subparsers.add_parser('milestones', help='Project milestone tracking')
+    milestones_subparsers = milestones_parser.add_subparsers(dest='milestones_action')
+    
+    create_milestone_parser = milestones_subparsers.add_parser('create', help='Create project milestone')
+    create_milestone_parser.add_argument('name', help='Milestone name')
+    create_milestone_parser.add_argument('hours', type=int, help='Target hours to complete')
+    create_milestone_parser.add_argument('--description', default='', help='Milestone description')
+    create_milestone_parser.add_argument('--project', help='Project name (default: current)')
+    
+    milestones_subparsers.add_parser('show', help='Show milestone progress')
+    
+    schedule_parser = subparsers.add_parser('schedule', help='Time block scheduling')
+    schedule_subparsers = schedule_parser.add_subparsers(dest='schedule_action')
+    
+    plan_parser = schedule_subparsers.add_parser('plan', help='Schedule a time block')
+    plan_parser.add_argument('type', help='Block type (focus, review, break, etc.)')
+    plan_parser.add_argument('datetime', help='Start time (YYYY-MM-DD HH:MM)')
+    plan_parser.add_argument('duration', type=int, help='Duration in minutes')
+    plan_parser.add_argument('--project', help='Project name (default: current)')
+    plan_parser.add_argument('--notes', default='', help='Optional notes')
+    
+    schedule_subparsers.add_parser('show', help='Show upcoming time blocks')
+    
+    subparsers.add_parser('focus', help='Show focus and consistency analytics')
+    subparsers.add_parser('review', help='Show daily review summary')
+    
     if len(sys.argv) == 1:
         print("DevFlow CLI - Development Workflow Manager")
         print("=" * 50)
@@ -991,6 +1424,15 @@ Examples:
         print("  leaderboard        - Show project leaderboard")
         print("  tags add <tag>     - Add tag to current session")
         print("  insights           - Show advanced analytics")
+        print("  habits create      - Create new coding habit")
+        print("  habits complete    - Mark habit as completed")
+        print("  habits status      - Show habit progress")
+        print("  milestones create  - Create project milestone")
+        print("  milestones show    - Show milestone progress")
+        print("  schedule plan      - Schedule focused time blocks")
+        print("  schedule show      - Show upcoming schedule")
+        print("  focus              - Show focus analytics")
+        print("  review             - Show daily review")
         print("\nUse 'devflow <command> --help' for detailed help")
         return
     
@@ -1037,6 +1479,29 @@ Examples:
             cli.add_tag(args.tag)
     elif args.command == 'insights':
         cli.show_insights()
+    elif args.command == 'habits':
+        if args.habits_action == 'create':
+            cli.create_habit(args.name, args.description, args.frequency)
+        elif args.habits_action == 'complete':
+            cli.complete_habit(args.name, args.notes)
+        elif args.habits_action == 'status':
+            cli.show_habits()
+    elif args.command == 'milestones':
+        if args.milestones_action == 'create':
+            project = args.project or cli.get_current_project_name()
+            cli.create_milestone(project, args.name, args.description, args.hours)
+        elif args.milestones_action == 'show':
+            cli.show_milestones()
+    elif args.command == 'schedule':
+        if args.schedule_action == 'plan':
+            project = args.project or cli.get_current_project_name()
+            cli.schedule_block(project, args.type, args.datetime, args.duration, args.notes)
+        elif args.schedule_action == 'show':
+            cli.show_schedule()
+    elif args.command == 'focus':
+        cli.show_focus_report()
+    elif args.command == 'review':
+        cli.show_daily_review()
 
 if __name__ == '__main__':
     main()

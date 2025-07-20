@@ -17,6 +17,11 @@ A comprehensive development workflow manager that helps developers track coding 
 - **Project Leaderboard**: Compare productivity across different projects
 - **Productivity Scoring**: Intelligent scoring based on coding frequency
 - **Weekly Summaries**: Comprehensive project performance reports
+- **Habit Tracking**: Build and maintain coding habits with weekly targets
+- **Milestone System**: Set and track project completion milestones
+- **Time Block Scheduling**: Plan focused work sessions in advance
+- **Focus Analytics**: Deep analysis of concentration patterns and consistency
+- **Daily Review**: Comprehensive end-of-day productivity summary
 - **Cross-Platform**: Works on Linux, macOS, and Windows
 - **Self-Contained**: No external dependencies required
 
@@ -48,6 +53,19 @@ py devflow.py
 - `devflow score [--days N]` - Show productivity score
 - `devflow heatmap` - Show activity heatmap
 - `devflow leaderboard` - Project productivity rankings
+- `devflow focus` - Focus and consistency analytics
+- `devflow review` - Daily productivity review
+
+### Habit & Goal Tracking
+- `devflow habits create NAME` - Create a new coding habit
+- `devflow habits complete NAME` - Mark habit as completed for today
+- `devflow habits status` - Show habit completion progress
+- `devflow milestones create NAME HOURS` - Create project milestone
+- `devflow milestones show` - Show milestone progress
+
+### Time Management
+- `devflow schedule plan TYPE DATETIME DURATION` - Schedule focused time blocks
+- `devflow schedule show` - Show upcoming scheduled blocks
 
 ### Productivity Tools
 - `devflow achievements` - View unlocked achievements
@@ -61,6 +79,58 @@ py devflow.py
 - `devflow template use <name> <path>` - Use a template for new project
 - `devflow goals set <hours>` - Set daily coding goal
 - `devflow export` - Export data to various formats
+
+## New Advanced Features
+
+### Habit Tracking System
+Build sustainable coding practices with our habit tracking system:
+
+```bash
+# Create coding habits with weekly targets
+devflow habits create "Daily Commit" --description "Make at least one commit per day" --frequency 7
+devflow habits create "Code Review" --frequency 3
+
+# Mark habits as completed
+devflow habits complete "Daily Commit" --notes "Fixed bug in authentication"
+
+# Check habit progress
+devflow habits status
+```
+
+### Project Milestones
+Set and track significant project goals:
+
+```bash
+# Create milestones with hour targets
+devflow milestones create "MVP Release" 100 --description "Complete minimum viable product"
+devflow milestones create "Beta Testing" 50
+
+# View milestone progress (auto-updates based on coding time)
+devflow milestones show
+```
+
+### Time Block Scheduling
+Plan focused work sessions in advance:
+
+```bash
+# Schedule focused coding blocks
+devflow schedule plan "Deep Focus" "2024-12-20 09:00" 120 --notes "Work on authentication system"
+devflow schedule plan "Code Review" "2024-12-20 14:00" 60
+
+# View upcoming schedule
+devflow schedule show
+```
+
+### Focus Analytics
+Get deep insights into your concentration patterns:
+
+```bash
+# Analyze focus quality and consistency
+devflow focus
+
+# Daily productivity summary
+devflow review
+```
 
 ## Setup Instructions
 
