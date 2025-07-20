@@ -23,9 +23,11 @@ A comprehensive development workflow manager that helps developers track coding 
 - **Focus Analytics**: Deep analysis of concentration patterns and consistency
 - **Daily Review**: Comprehensive end-of-day productivity summary
 - **Music Integration**: Track music preferences and correlate with productivity patterns
-- **Music Analytics**: AI-powered recommendations based on coding performance
+- **Music Analytics**: Recommendations based on coding performance
 - **Voice Commands**: Hands-free session management and voice-to-text transcription
 - **Voice Analytics**: Track and analyze voice command usage patterns
+- **Session Snapshots**: Visual project progress tracking with automatic milestones
+- **Progress Charts**: See your project growth over time with file/line counts
 - **Cross-Platform**: Works on Linux, macOS, and Windows
 - **Self-Contained**: No external dependencies required
 
@@ -77,7 +79,7 @@ py devflow.py
 - `devflow music status` - Show currently tracked music
 - `devflow music rate "TYPE" PRODUCTIVITY FOCUS` - Rate music's effect on productivity (1-10 scale)
 - `devflow music analytics` - View music productivity correlations
-- `devflow music recommend` - Get AI-powered music recommendations
+- `devflow music recommend` - Get music recommendations
 
 ### Voice Commands & Transcription
 - `devflow voice enable [--sensitivity N] [--language LANG] [--wake-word WORD]` - Enable voice commands
@@ -85,6 +87,11 @@ py devflow.py
 - `devflow voice status` - Show voice command settings and usage history
 - `devflow voice interactive` - Start interactive voice command mode
 - `devflow voice transcribe --to-notes [--text TEXT]` - Convert speech to session notes
+
+### Session Snapshots & Progress Tracking
+- `devflow snapshot [--milestone] [--notes TEXT]` - Capture current project state
+- `devflow snapshots` - View all snapshots for current session
+- `devflow progress [--days N]` - Show visual progress chart with file/line growth
 
 ### Productivity Tools
 - `devflow achievements` - View unlocked achievements
@@ -163,7 +170,7 @@ devflow music log "Classical Piano" --artist "Ludovico Einaudi" --mood "focused"
 devflow music rate "Lo-fi Hip Hop" 9 8  # productivity=9, focus=8 (out of 10)
 devflow music rate "Classical Piano" 8 9
 
-# Get AI-powered recommendations based on your productivity data
+# Get recommendations based on your productivity data
 devflow music recommend
 
 # Analyze which music types boost your coding performance
@@ -179,7 +186,7 @@ devflow music stop
 **Music Analytics Features:**
 - **Productivity Correlation**: See which music types lead to longer, more productive sessions
 - **Mood & Energy Tracking**: Correlate music energy levels with coding performance
-- **Personalized Recommendations**: AI suggests music based on your historical productivity data
+- **Personalized Recommendations**: Suggests music based on your historical productivity data
 - **Session Integration**: Music data automatically tied to coding sessions for comprehensive analytics
 - **Genre Analysis**: Discover which musical genres enhance your focus and creativity
 
@@ -219,6 +226,32 @@ devflow voice disable
 - **Command History**: Track and analyze voice command usage patterns
 - **Interactive Mode**: Real-time voice command processing and feedback
 
+### Session Snapshots & Visual Progress
+Experience visual project evolution with automated progress tracking:
+
+```bash
+# Capture project state at any moment
+devflow snapshot --notes "Completed authentication module"
+
+# Mark important milestones in your development
+devflow snapshot --milestone --notes "MVP Release Ready!"
+
+# View all snapshots for current session
+devflow snapshots
+
+# See visual progress chart with file/line growth over time
+devflow progress --days 7
+```
+
+**Session Snapshot Features:**
+- **Automatic Snapshots**: Captures project state when sessions end
+- **Milestone Tracking**: Mark significant development achievements
+- **File & Directory Analysis**: Track project growth over time
+- **Visual Progress Charts**: See coding activity with file/line count evolution
+- **Project Structure Insights**: Monitor how your codebase evolves
+- **Historical Comparison**: Compare project state across different time periods
+- **Smart File Detection**: Automatically identifies and counts code files vs other files
+
 ## Setup Instructions
 
 1. Ensure Python 3.6+ is installed
@@ -251,11 +284,14 @@ Unlock achievements for coding milestones:
 - Weekly summaries with comprehensive metrics
 - Streak tracking for motivation
 - **Music-Productivity Correlation Analysis**: Discover which music enhances your coding flow
-- **AI-Powered Music Recommendations**: Get personalized suggestions based on your productivity patterns
+- **Music Recommendations**: Get personalized suggestions based on your productivity patterns
 - **Mood & Energy Correlation**: Track how music energy levels affect your coding performance
 - **Voice Command Analytics**: Analyze voice command usage patterns and effectiveness
 - **Speech-to-Text Integration**: Convert natural speech to actionable session data
 - **Hands-Free Productivity**: Manage entire coding sessions without keyboard interaction
+- **Visual Progress Tracking**: See project evolution with file/line count growth over time
+- **Automated Project Snapshots**: Capture development milestones and compare project states
+- **Smart Project Analysis**: Automatic detection of code files, directories, and project structure changes
 
 ---
 

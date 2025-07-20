@@ -210,6 +210,23 @@ class DevFlowDB:
             )
         ''')
         
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS session_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER,
+                snapshot_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                total_files INTEGER DEFAULT 0,
+                code_files INTEGER DEFAULT 0,
+                total_lines INTEGER DEFAULT 0,
+                directories INTEGER DEFAULT 0,
+                file_types TEXT,
+                project_structure TEXT,
+                milestone_reached BOOLEAN DEFAULT 0,
+                notes TEXT,
+                FOREIGN KEY(session_id) REFERENCES sessions(id)
+            )
+        ''')
+        
         conn.commit()
         conn.close()
     
@@ -515,10 +532,9 @@ class DevFlowDB:
         ''', (project_name,))
         
         milestones = cursor.fetchall()
-        
-        # Auto-complete milestones that have reached their target
+
         for milestone in milestones:
-            if milestone[5] >= milestone[3]:  # hours_completed >= target_hours
+            if milestone[5] >= milestone[3]:
                 today = datetime.datetime.now().strftime('%Y-%m-%d')
                 cursor.execute(
                     'UPDATE milestones SET completed = 1, completed_date = ? WHERE id = ?',
@@ -569,7 +585,6 @@ class DevFlowDB:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Session length analysis
         cursor.execute(
             '''SELECT duration FROM sessions 
                WHERE project_name = ? AND start_time >= ? AND end_time IS NOT NULL
@@ -578,10 +593,8 @@ class DevFlowDB:
         )
         durations = [row[0] for row in cursor.fetchall()]
         
-        # Interruption analysis (sessions < 15 minutes)
         interruptions = len([d for d in durations if d < 900])
         
-        # Flow state sessions (sessions > 90 minutes)
         flow_sessions = len([d for d in durations if d > 5400])
         
         conn.close()
@@ -599,14 +612,12 @@ class DevFlowDB:
     def calculate_consistency_score(self, durations):
         if len(durations) < 2:
             return 0
-        
-        # Calculate coefficient of variation (lower is more consistent)
+
         mean_duration = sum(durations) / len(durations)
         variance = sum((d - mean_duration) ** 2 for d in durations) / len(durations)
         std_dev = variance ** 0.5
         cv = (std_dev / mean_duration) * 100 if mean_duration > 0 else 100
-        
-        # Convert to consistency score (0-100, higher is better)
+
         consistency = max(0, 100 - cv)
         return round(consistency, 1)
 
@@ -620,7 +631,6 @@ class DevFlowDB:
             (session_id, music_type, artist, track_name, genre, mood, energy_level, start_time)
         )
         
-        # Update music preferences
         today = datetime.datetime.now().strftime('%Y-%m-%d')
         cursor.execute(
             '''INSERT OR REPLACE INTO music_preferences (music_type, usage_count, last_used)
@@ -659,7 +669,6 @@ class DevFlowDB:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Get music productivity correlation
         cursor.execute('''
             SELECT m.music_type, m.artist, m.genre, m.mood,
                    AVG(s.duration) as avg_session_duration,
@@ -681,7 +690,6 @@ class DevFlowDB:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Get top-rated music types based on productivity and focus
         cursor.execute('''
             SELECT music_type, productivity_rating, focus_rating, usage_count, last_used
             FROM music_preferences
@@ -708,8 +716,7 @@ class DevFlowDB:
     def enable_voice_commands(self, enabled=True, sensitivity=0.7, language='en-US', wake_word='devflow'):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
-        # Insert or update voice settings
+
         cursor.execute('''
             INSERT OR REPLACE INTO voice_settings (id, enabled, sensitivity, language, wake_word, last_updated)
             VALUES (1, ?, ?, ?, ?, ?)
@@ -756,6 +763,101 @@ class DevFlowDB:
         conn.close()
         return results
 
+    def create_session_snapshot(self, session_id, project_path, milestone_reached=False, notes=''):
+        """Create a snapshot of current project state"""
+        import json
+        
+        if not project_path or not os.path.exists(project_path):
+            return
+
+        total_files = 0
+        code_files = 0
+        total_lines = 0
+        directories = 0
+        file_types = {}
+        structure = {}
+        
+        code_extensions = {'.py', '.js', '.ts', '.java', '.cpp', '.c', '.cs', '.php', '.rb', '.go', '.rs', '.swift', '.kt'}
+        
+        try:
+            for root, dirs, files in os.walk(project_path):
+                dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'venv', 'env']]
+                directories += len(dirs)
+                
+                for file in files:
+                    if file.startswith('.'):
+                        continue
+                        
+                    total_files += 1
+                    file_path = os.path.join(root, file)
+                    
+                    ext = os.path.splitext(file)[1].lower()
+                    file_types[ext] = file_types.get(ext, 0) + 1
+                    
+                    if ext in code_extensions:
+                        code_files += 1
+                        
+                        try:
+                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                total_lines += sum(1 for line in f if line.strip())
+                        except:
+                            pass
+
+                    rel_path = os.path.relpath(root, project_path)
+                    if rel_path != '.':
+                        top_dir = rel_path.split(os.sep)[0]
+                        if top_dir not in structure:
+                            structure[top_dir] = 0
+                        structure[top_dir] += 1
+        
+        except Exception:
+            pass
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''INSERT INTO session_snapshots 
+               (session_id, total_files, code_files, total_lines, directories, file_types, project_structure, milestone_reached, notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (session_id, total_files, code_files, total_lines, directories, 
+             json.dumps(file_types), json.dumps(structure), milestone_reached, notes)
+        )
+        conn.commit()
+        conn.close()
+        return cursor.lastrowid
+
+    def get_session_snapshots(self, session_id):
+        """Get all snapshots for a session"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT * FROM session_snapshots WHERE session_id = ? ORDER BY snapshot_time',
+            (session_id,)
+        )
+        results = cursor.fetchall()
+        conn.close()
+        return results
+
+    def get_project_progress(self, project_name, days=30):
+        """Get project progress over time"""
+        end_date = datetime.datetime.now()
+        start_date = end_date - datetime.timedelta(days=days)
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''SELECT s.start_time, s.end_time, s.duration, 
+                      ss.total_files, ss.code_files, ss.total_lines, ss.milestone_reached
+               FROM sessions s
+               LEFT JOIN session_snapshots ss ON s.id = ss.session_id
+               WHERE s.project_name = ? AND s.start_time >= ? AND s.end_time IS NOT NULL
+               ORDER BY s.start_time''',
+            (project_name, start_date.strftime('%Y-%m-%d %H:%M:%S'))
+        )
+        results = cursor.fetchall()
+        conn.close()
+        return results
+
 class VoiceManager:
     """Simple voice command manager using basic text patterns"""
     
@@ -763,8 +865,7 @@ class VoiceManager:
         self.db = db
         self.listening = False
         self.voice_thread = None
-        
-        # Voice command patterns
+
         self.command_patterns = {
             r'(?:hey\s+)?devflow\s+start(?:\s+session)?(?:\s+(.+))?': 'start_session',
             r'(?:hey\s+)?devflow\s+stop(?:\s+session)?': 'stop_session',
@@ -822,13 +923,11 @@ class VoiceManager:
         action, params, confidence = self.parse_voice_command(text)
         
         if action:
-            # Log the voice command
             session_id = cli_instance.current_session['id'] if cli_instance.current_session else None
             self.db.log_voice_command(text, f"{action}:{params}", session_id, confidence)
             
             print(f"🎤 Voice command recognized: '{text}' (confidence: {confidence:.1f})")
             
-            # Execute the command
             try:
                 if action == 'start_session':
                     project_name = params[0] if params and params[0] else None
@@ -879,7 +978,6 @@ class VoiceManager:
     
     def voice_to_text_simulation(self, text):
         """Simulate voice-to-text conversion"""
-        # In a real implementation, this would use actual speech recognition
         print(f"🎤 Converting speech to text: '{text}'")
         return text
     
@@ -983,9 +1081,16 @@ class DevFlowCLI:
             (date_str, self.current_session['project_name'], date_str, self.current_session['project_name'], minutes)
         )
         
-        # Update streak and check achievements
         self.db.update_streak(self.current_session['project_name'])
         self.db.check_achievements(self.current_session['project_name'], minutes)
+        
+        project_path = self.current_session.get('project_path', os.getcwd())
+        self.db.create_session_snapshot(
+            self.current_session['id'], 
+            project_path, 
+            milestone_reached=False, 
+            notes=f"Session ended - {self.format_duration(duration)}"
+        )
         
         print(f"Stopped session for '{self.current_session['project_name']}'")
         print(f"   Duration: {self.format_duration(duration)}")
@@ -993,6 +1098,7 @@ class DevFlowCLI:
         if files_changed > 0:
             print(f"   Files changed: {files_changed}")
             print(f"   Lines: +{lines_added} -{lines_removed}")
+        print("📸 Session snapshot saved automatically")
         
         self.current_session = None
     
@@ -1416,12 +1522,10 @@ class DevFlowCLI:
         print(f"\nAdvanced Insights for '{project_name}':")
         print("=" * 50)
         
-        # Time distribution analysis
         if time_dist:
             print("\nHourly Coding Distribution (Last 7 days):")
             print("-" * 40)
             
-            # Find peak hours
             peak_hour = max(time_dist.items(), key=lambda x: x[1])
             total_minutes = sum(time_dist.values())
             
@@ -1434,8 +1538,7 @@ class DevFlowCLI:
                     print(f"{hour:2d}:00 │{bar:<20} {self.format_duration(minutes * 60)} ({percentage:.1f}%)")
             
             print(f"\n🔥 Peak productivity: {peak_hour[0]}:00 with {self.format_duration(peak_hour[1] * 60)}")
-            
-            # Productivity insights
+
             morning_time = sum(time_dist.get(h, 0) for h in range(6, 12))
             afternoon_time = sum(time_dist.get(h, 0) for h in range(12, 18))
             evening_time = sum(time_dist.get(h, 0) for h in range(18, 24))
@@ -1479,7 +1582,6 @@ class DevFlowCLI:
             print(f"   {description}")
             print(f"   Progress: {completions}/{target} ({completion_rate:.1f}%)")
             
-            # Visual progress bar
             progress_bars = int((completions / target) * 10) if target > 0 else 0
             progress_bar = "█" * progress_bars + "░" * (10 - progress_bars)
             print(f"   [{progress_bar}]")
@@ -1512,7 +1614,6 @@ class DevFlowCLI:
             print(f"   {desc}")
             print(f"   Progress: {hours_done:.1f}h / {target}h ({progress:.1f}%)")
             
-            # Progress visualization
             progress_bars = int(progress / 10)
             bar = "█" * progress_bars + "░" * (10 - progress_bars)
             print(f"   [{bar}] {progress:.1f}%")
@@ -1575,7 +1676,6 @@ class DevFlowCLI:
         print(f"Interruption Rate: {analytics['interruption_rate']:.1f}%")
         print(f"Consistency Score: {analytics['consistency_score']}%")
         
-        # Focus rating
         if analytics['consistency_score'] >= 80 and analytics['interruption_rate'] < 20:
             print("\n🔥 EXCELLENT FOCUS - You're in the zone!")
         elif analytics['consistency_score'] >= 60 and analytics['interruption_rate'] < 40:
@@ -1592,7 +1692,6 @@ class DevFlowCLI:
         print(f"\nDaily Review - {today}")
         print("=" * 40)
         
-        # Today's coding time
         today_sessions = self.db.execute_query(
             "SELECT SUM(duration), COUNT(*) FROM sessions WHERE DATE(start_time) = ? AND project_name = ? AND end_time IS NOT NULL",
             (today, project_name), fetch=True
@@ -1604,22 +1703,18 @@ class DevFlowCLI:
         print(f"📊 Coding Time: {self.format_duration(total_time)}")
         print(f"📈 Sessions: {session_count}")
         
-        # Habit completions
         habits = self.db.get_habit_status(1)
         completed_habits = sum(1 for h in habits if h[3] > 0)
         total_habits = len(habits)
         
         print(f"✅ Habits: {completed_habits}/{total_habits} completed")
         
-        # Current streak
         streak = self.db.get_current_streak()
         print(f"🔥 Streak: {streak} days")
         
-        # Productivity score
         score = self.db.get_productivity_score(project_name, 1)
         print(f"⭐ Today's Score: {score}%")
         
-        # Weekly goals progress
         weekly_summary = self.db.get_weekly_summary(project_name)
         weekly_hours = weekly_summary['total_time'] / 60 if weekly_summary['total_time'] else 0
         print(f"\n📅 This Week: {weekly_hours:.1f}h total")
@@ -1629,12 +1724,10 @@ class DevFlowCLI:
             print("No active session. Start a session first with 'devflow start'")
             return
         
-        # Stop any current music session
         current_music = self.db.get_current_music_session(self.current_session['id'])
         if current_music:
             self.db.stop_music(current_music[0])
         
-        # Start new music session
         music_id = self.db.log_music(
             self.current_session['id'], music_type, artist, track_name, genre, mood, energy_level
         )
@@ -1740,7 +1833,129 @@ class DevFlowCLI:
         duration = int((datetime.datetime.now() - start_dt).total_seconds())
         print(f"   Playing for: {self.format_duration(duration)}")
 
-    # Voice Command Methods
+    def take_snapshot(self, milestone=False, notes=''):
+        """Take a snapshot of current project state"""
+        if not self.current_session:
+            print("No active session. Start a session first with 'devflow start'")
+            return
+        
+        project_path = self.current_session.get('project_path')
+        if not project_path:
+            project_path = os.getcwd()
+        
+        snapshot_id = self.db.create_session_snapshot(
+            self.current_session['id'], 
+            project_path, 
+            milestone, 
+            notes
+        )
+        
+        print("📸 Project snapshot captured!")
+        if milestone:
+            print("🎯 Milestone snapshot created")
+        if notes:
+            print(f"📝 Note: {notes}")
+        
+        return snapshot_id
+
+    def show_snapshots(self):
+        """Show snapshots for current session"""
+        if not self.current_session:
+            print("No active session")
+            return
+        
+        snapshots = self.db.get_session_snapshots(self.current_session['id'])
+        
+        print(f"\n📸 Session Snapshots for '{self.current_session['project_name']}':")
+        print("=" * 50)
+        
+        if not snapshots:
+            print("No snapshots taken yet. Use 'devflow snapshot' to capture project state!")
+            return
+        
+        import json
+        
+        for i, snapshot in enumerate(snapshots, 1):
+            snap_id, session_id, snap_time, total_files, code_files, total_lines, directories, file_types_json, structure_json, milestone, notes = snapshot
+            
+            file_types = json.loads(file_types_json) if file_types_json else {}
+            structure = json.loads(structure_json) if structure_json else {}
+            
+            print(f"\n{i}. Snapshot taken at {snap_time}")
+            if milestone:
+                print("   🎯 MILESTONE SNAPSHOT")
+            if notes:
+                print(f"   📝 {notes}")
+            
+            print(f"   📁 Files: {total_files} total, {code_files} code files")
+            print(f"   📊 Lines of code: {total_lines:,}")
+            print(f"   📂 Directories: {directories}")
+            
+            if file_types:
+                top_types = sorted(file_types.items(), key=lambda x: x[1], reverse=True)[:3]
+                types_str = ", ".join([f"{ext}({count})" for ext, count in top_types])
+                print(f"   🔧 Top file types: {types_str}")
+
+    def show_progress_chart(self, days=7):
+        """Show visual progress chart for current project"""
+        project_name = self.get_current_project_name()
+        progress_data = self.db.get_project_progress(project_name, days)
+        
+        print(f"\n📈 Project Progress Chart: '{project_name}' (Last {days} days)")
+        print("=" * 60)
+        
+        if not progress_data:
+            print("No progress data available. Start coding to see your progress!")
+            return
+        
+        daily_stats = {}
+        for session_data in progress_data:
+            start_time, end_time, duration, total_files, code_files, total_lines, milestone = session_data
+            
+            if not start_time:
+                continue
+                
+            day = datetime.datetime.fromisoformat(start_time).strftime('%Y-%m-%d')
+            
+            if day not in daily_stats:
+                daily_stats[day] = {
+                    'coding_time': 0,
+                    'max_files': 0,
+                    'max_lines': 0,
+                    'milestones': 0
+                }
+            
+            daily_stats[day]['coding_time'] += (duration or 0)
+            if total_files:
+                daily_stats[day]['max_files'] = max(daily_stats[day]['max_files'], total_files)
+            if total_lines:
+                daily_stats[day]['max_lines'] = max(daily_stats[day]['max_lines'], total_lines)
+            if milestone:
+                daily_stats[day]['milestones'] += 1
+        
+        print("\nDaily Coding Activity:")
+        print("-" * 30)
+        
+        sorted_days = sorted(daily_stats.keys())
+        
+        for day in sorted_days:
+            stats = daily_stats[day]
+            day_name = datetime.datetime.strptime(day, '%Y-%m-%d').strftime('%a %m/%d')
+
+            hours = stats['coding_time'] / 3600
+            bar_length = min(20, int(hours * 2))
+            bar = "█" * bar_length + "░" * (20 - bar_length)
+            
+            milestone_indicator = " 🎯" if stats['milestones'] > 0 else ""
+            
+            print(f"{day_name} │{bar}│ {hours:.1f}h{milestone_indicator}")
+            if stats['max_files'] > 0:
+                print(f"        📁 {stats['max_files']} files, {stats['max_lines']:,} lines")
+        
+        total_hours = sum(stats['coding_time'] for stats in daily_stats.values()) / 3600
+        total_milestones = sum(stats['milestones'] for stats in daily_stats.values())
+        print(f"\n📊 Summary: {total_hours:.1f}h total, {total_milestones} milestones")
+
     def enable_voice_commands(self, sensitivity=0.7, language='en-US', wake_word='devflow'):
         """Enable voice commands with specified settings"""
         self.db.enable_voice_commands(True, sensitivity, language, wake_word)
@@ -1788,13 +2003,10 @@ class DevFlowCLI:
                 return
         
         if text:
-            # Process the text (in real implementation, this would be speech-to-text)
             processed_text = self.voice_manager.voice_to_text_simulation(text)
             
-            # Add the note
             self.add_session_note(processed_text)
             
-            # Log the voice command
             self.db.log_voice_command(
                 f"Transcribe: {text}", 
                 f"add_note:{processed_text}", 
@@ -1824,7 +2036,6 @@ class DevFlowCLI:
             print("Status: Not configured")
             print("Run 'devflow voice enable' to set up voice commands")
         
-        # Show recent voice commands
         history = self.db.get_voice_command_history(5)
         if history:
             print("\nRecent Voice Commands:")
@@ -1891,8 +2102,7 @@ Examples:
     
     export_parser = subparsers.add_parser('export', help='Export data')
     export_parser.add_argument('format', choices=['json', 'csv'], default='json', nargs='?')
-    
-    # New commands for enhanced features
+
     subparsers.add_parser('achievements', help='Show earned achievements')
     
     notes_parser = subparsers.add_parser('notes', help='Session notes management')
@@ -1909,7 +2119,6 @@ Examples:
     score_parser = subparsers.add_parser('score', help='Show productivity score')
     score_parser.add_argument('--days', type=int, default=7, help='Number of days to calculate score for')
     
-    # Advanced features
     subparsers.add_parser('leaderboard', help='Show project leaderboard')
     
     tags_parser = subparsers.add_parser('tags', help='Session tagging')
@@ -1959,8 +2168,16 @@ Examples:
     
     subparsers.add_parser('focus', help='Show focus and consistency analytics')
     subparsers.add_parser('review', help='Show daily review summary')
+
+    snapshot_parser = subparsers.add_parser('snapshot', help='Project snapshot and progress tracking')
+    snapshot_parser.add_argument('--milestone', action='store_true', help='Mark this as a milestone snapshot')
+    snapshot_parser.add_argument('--notes', default='', help='Add notes to the snapshot')
     
-    # Music integration features
+    subparsers.add_parser('snapshots', help='Show session snapshots')
+    
+    progress_parser = subparsers.add_parser('progress', help='Show visual progress chart')
+    progress_parser.add_argument('--days', type=int, default=7, help='Number of days to show')
+
     music_parser = subparsers.add_parser('music', help='Music productivity tracking')
     music_subparsers = music_parser.add_subparsers(dest='music_action')
     
@@ -1982,8 +2199,7 @@ Examples:
     
     music_subparsers.add_parser('analytics', help='Show music productivity analytics')
     music_subparsers.add_parser('recommend', help='Get music recommendations')
-    
-    # Voice command features
+
     voice_parser = subparsers.add_parser('voice', help='Voice command management')
     voice_subparsers = voice_parser.add_subparsers(dest='voice_action')
     
@@ -2031,6 +2247,9 @@ Examples:
         print("  schedule show      - Show upcoming schedule")
         print("  focus              - Show focus analytics")
         print("  review             - Show daily review")
+        print("  snapshot           - Take project snapshot")
+        print("  snapshots          - Show session snapshots")
+        print("  progress [days]    - Show visual progress chart")
         print("  music log <type>   - Log music you're listening to")
         print("  music stop         - Stop current music session")
         print("  music status       - Show current music")
@@ -2110,6 +2329,12 @@ Examples:
         cli.show_focus_report()
     elif args.command == 'review':
         cli.show_daily_review()
+    elif args.command == 'snapshot':
+        cli.take_snapshot(args.milestone, args.notes)
+    elif args.command == 'snapshots':
+        cli.show_snapshots()
+    elif args.command == 'progress':
+        cli.show_progress_chart(args.days)
     elif args.command == 'music':
         if args.music_action == 'log':
             cli.log_music(args.type, args.artist, args.track, args.genre, args.mood, args.energy)
