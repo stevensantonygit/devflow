@@ -1,7 +1,7 @@
 {
   "name": "DevFlow CLI",
   "description": "A comprehensive development workflow manager that helps developers track coding sessions, manage project templates, and analyze productivity patterns",
-  "author": "Steven Santony",
+  "author": "Stevens Antony",
   "version": "1.0.0",
   "setup": [
     "chmod +x devflow",
