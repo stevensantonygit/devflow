@@ -28,6 +28,8 @@ A comprehensive development workflow manager that helps developers track coding 
 - **Voice Analytics**: Track and analyze voice command usage patterns
 - **Session Snapshots**: Visual project progress tracking with automatic milestones
 - **Progress Charts**: See your project growth over time with file/line counts
+- **Quick Ideas & Brainstorming**: Capture thoughts, TODOs, and brainstorm sessions during coding
+- **Idea Management**: Organize, prioritize, search, and track completion of development ideas
 - **Cross-Platform**: Works on Linux, macOS, and Windows
 - **Self-Contained**: No external dependencies required
 
@@ -99,6 +101,15 @@ py devflow.py
 - `devflow notes add <text>` - Add note to current session
 - `devflow notes list` - View recent session notes
 - `devflow tags add <tag>` - Tag current session
+
+### Quick Ideas & Brainstorming
+- `devflow idea add "TEXT" [--category CAT] [--priority 1-5] [--tags "tag1,tag2"]` - Add quick idea or TODO
+- `devflow idea list [--category CAT] [--status open|completed] [--limit N]` - List ideas with filtering
+- `devflow idea complete <id>` - Mark idea as completed
+- `devflow idea delete <id>` - Delete an idea
+- `devflow idea search "TERM"` - Search ideas by text, tags, or category
+- `devflow idea brainstorm [--topic "TOPIC"]` - Start interactive brainstorming session
+- `devflow idea stats` - Show ideas dashboard with completion rates and insights
 
 ### Project Management
 - `devflow template create <name>` - Create a new project template
@@ -226,6 +237,51 @@ devflow voice disable
 - **Command History**: Track and analyze voice command usage patterns
 - **Interactive Mode**: Real-time voice command processing and feedback
 
+### Quick Ideas & Brainstorming System
+Capture inspiration and manage development thoughts with our comprehensive idea management system:
+
+```bash
+# Add quick ideas and TODOs with priorities and categories
+devflow idea add "Implement user authentication" --category feature --priority 5 --tags "security,backend"
+devflow idea add "Refactor API endpoints" --category refactor --priority 3 --tags "cleanup,api"
+devflow idea add "Maybe add dark mode later" --category feature --priority 1 --tags "ui,future"
+
+# List and filter your ideas
+devflow idea list                              # Show all open ideas
+devflow idea list --category feature          # Filter by category
+devflow idea list --status completed          # Show completed ideas
+devflow idea list --limit 10                  # Limit results
+
+# Manage idea lifecycle
+devflow idea complete 1                       # Mark idea as completed
+devflow idea delete 5                         # Remove unwanted ideas
+
+# Search through your ideas
+devflow idea search "authentication"          # Find ideas containing text
+devflow idea search "security"                # Search by tags or category
+
+# Interactive brainstorming sessions
+devflow idea brainstorm --topic "UI improvements"
+# Interactive mode where you enter ideas one by one
+# Auto-categorizes and prioritizes based on keywords
+# Type 'done' to finish session
+
+# View comprehensive idea analytics
+devflow idea stats
+```
+
+**Quick Ideas Features:**
+- **Smart Categorization**: Auto-organize ideas by type (feature, bug, refactor, docs, etc.)
+- **Priority Management**: 5-level priority system with visual indicators (⭐)
+- **Tag System**: Flexible tagging for cross-cutting concerns and organization
+- **Completion Tracking**: Monitor progress with completion rates and statistics
+- **Search & Filter**: Powerful search across idea text, tags, and categories
+- **Interactive Brainstorming**: Guided sessions for capturing multiple ideas quickly
+- **Session Integration**: Ideas automatically linked to current coding sessions
+- **Smart Prioritization**: Auto-assigns priority based on keyword detection (urgent, important, maybe, etc.)
+- **Project Context**: Ideas organized by project for focused development planning
+- **Completion Analytics**: Track productivity patterns and idea-to-implementation rates
+
 ### Session Snapshots & Visual Progress
 Experience visual project evolution with automated progress tracking:
 
@@ -292,6 +348,9 @@ Unlock achievements for coding milestones:
 - **Visual Progress Tracking**: See project evolution with file/line count growth over time
 - **Automated Project Snapshots**: Capture development milestones and compare project states
 - **Smart Project Analysis**: Automatic detection of code files, directories, and project structure changes
+- **Idea Management Analytics**: Track idea generation patterns, completion rates, and productivity correlations
+- **Brainstorming Insights**: Analyze creative session patterns and idea implementation success rates
+- **Development Planning Intelligence**: Smart categorization and prioritization of development tasks
 
 ---
 

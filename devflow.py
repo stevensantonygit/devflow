@@ -227,6 +227,32 @@ class DevFlowDB:
             )
         ''')
         
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS quick_ideas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_name TEXT NOT NULL,
+                idea_text TEXT NOT NULL,
+                category TEXT DEFAULT 'general',
+                priority INTEGER DEFAULT 3,
+                status TEXT DEFAULT 'open',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                session_id INTEGER,
+                tags TEXT,
+                FOREIGN KEY(session_id) REFERENCES sessions(id)
+            )
+        ''')
+        
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS idea_categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category_name TEXT UNIQUE NOT NULL,
+                description TEXT,
+                color_code TEXT DEFAULT '#3498db',
+                usage_count INTEGER DEFAULT 0
+            )
+        ''')
+        
         conn.commit()
         conn.close()
     
@@ -532,7 +558,7 @@ class DevFlowDB:
         ''', (project_name,))
         
         milestones = cursor.fetchall()
-
+        
         for milestone in milestones:
             if milestone[5] >= milestone[3]:
                 today = datetime.datetime.now().strftime('%Y-%m-%d')
@@ -612,12 +638,12 @@ class DevFlowDB:
     def calculate_consistency_score(self, durations):
         if len(durations) < 2:
             return 0
-
+        
         mean_duration = sum(durations) / len(durations)
         variance = sum((d - mean_duration) ** 2 for d in durations) / len(durations)
         std_dev = variance ** 0.5
         cv = (std_dev / mean_duration) * 100 if mean_duration > 0 else 100
-
+        
         consistency = max(0, 100 - cv)
         return round(consistency, 1)
 
@@ -716,7 +742,7 @@ class DevFlowDB:
     def enable_voice_commands(self, enabled=True, sensitivity=0.7, language='en-US', wake_word='devflow'):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-
+        
         cursor.execute('''
             INSERT OR REPLACE INTO voice_settings (id, enabled, sensitivity, language, wake_word, last_updated)
             VALUES (1, ?, ?, ?, ?, ?)
@@ -769,7 +795,7 @@ class DevFlowDB:
         
         if not project_path or not os.path.exists(project_path):
             return
-
+        
         total_files = 0
         code_files = 0
         total_lines = 0
@@ -802,7 +828,7 @@ class DevFlowDB:
                                 total_lines += sum(1 for line in f if line.strip())
                         except:
                             pass
-
+                    
                     rel_path = os.path.relpath(root, project_path)
                     if rel_path != '.':
                         top_dir = rel_path.split(os.sep)[0]
@@ -865,7 +891,7 @@ class VoiceManager:
         self.db = db
         self.listening = False
         self.voice_thread = None
-
+        
         self.command_patterns = {
             r'(?:hey\s+)?devflow\s+start(?:\s+session)?(?:\s+(.+))?': 'start_session',
             r'(?:hey\s+)?devflow\s+stop(?:\s+session)?': 'stop_session',
@@ -914,7 +940,7 @@ class VoiceManager:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 params = match.groups() if match.groups() else []
-                return action, params, 0.8  # Simulated confidence
+                return action, params, 0.8
         
         return None, [], 0.0
     
@@ -1538,7 +1564,7 @@ class DevFlowCLI:
                     print(f"{hour:2d}:00 │{bar:<20} {self.format_duration(minutes * 60)} ({percentage:.1f}%)")
             
             print(f"\n🔥 Peak productivity: {peak_hour[0]}:00 with {self.format_duration(peak_hour[1] * 60)}")
-
+            
             morning_time = sum(time_dist.get(h, 0) for h in range(6, 12))
             afternoon_time = sum(time_dist.get(h, 0) for h in range(12, 18))
             evening_time = sum(time_dist.get(h, 0) for h in range(18, 24))
@@ -1754,7 +1780,7 @@ class DevFlowCLI:
             return
         
         self.db.stop_music(current_music[0])
-        print(f"🎵 Stopped music: {current_music[2]}")  # music_type
+        print(f"🎵 Stopped music: {current_music[2]}")
 
     def rate_music(self, music_type, productivity_rating, focus_rating):
         self.db.rate_music_productivity(music_type, productivity_rating, focus_rating)
@@ -1776,7 +1802,7 @@ class DevFlowCLI:
         print("-" * 40)
         
         for i, (music_type, artist, genre, mood, avg_duration, count, prod_rating, focus_rating) in enumerate(analytics[:10], 1):
-            avg_duration = avg_duration or 0  # Handle None values
+            avg_duration = avg_duration or 0
             print(f"{i}. {music_type}")
             if artist:
                 print(f"   Artist: {artist}")
@@ -1941,7 +1967,7 @@ class DevFlowCLI:
         for day in sorted_days:
             stats = daily_stats[day]
             day_name = datetime.datetime.strptime(day, '%Y-%m-%d').strftime('%a %m/%d')
-
+            
             hours = stats['coding_time'] / 3600
             bar_length = min(20, int(hours * 2))
             bar = "█" * bar_length + "░" * (20 - bar_length)
@@ -2048,22 +2074,272 @@ class DevFlowCLI:
         else:
             print("\nNo voice commands used yet")
 
+    def add_idea(self, idea_text, category='general', priority=3, tags=''):
+        """Add a quick idea or TODO item"""
+        project_name = self.get_current_project_name()
+        session_id = None
+        if self.current_session:
+            session_id = self.current_session['id']
+        
+        conn = sqlite3.connect(self.db.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO quick_ideas 
+            (project_name, idea_text, category, priority, session_id, tags)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (project_name, idea_text, category, priority, session_id, tags))
+        
+        cursor.execute('''
+            INSERT OR IGNORE INTO idea_categories (category_name) VALUES (?)
+        ''', (category,))
+        
+        cursor.execute('''
+            UPDATE idea_categories SET usage_count = usage_count + 1 
+            WHERE category_name = ?
+        ''', (category,))
+        
+        conn.commit()
+        idea_id = cursor.lastrowid
+        conn.close()
+        
+        print(f"💡 Idea added: {idea_text}")
+        print(f"   Category: {category} | Priority: {priority}/5")
+        if tags:
+            print(f"   Tags: {tags}")
+        
+        return idea_id
+
+    def list_ideas(self, category=None, status='open', limit=20):
+        """List ideas with optional filtering"""
+        project_name = self.get_current_project_name()
+        
+        query = '''
+            SELECT id, idea_text, category, priority, status, 
+                   created_at, tags, completed_at
+            FROM quick_ideas 
+            WHERE project_name = ? AND status = ?
+        '''
+        params = [project_name, status]
+        
+        if category:
+            query += ' AND category = ?'
+            params.append(category)
+        
+        query += ' ORDER BY priority DESC, created_at DESC LIMIT ?'
+        params.append(limit)
+        
+        ideas = self.db.execute_query(query, params, fetch=True)
+        
+        if not ideas:
+            print(f"💡 No {status} ideas found for '{project_name}'")
+            if category:
+                print(f"   Category filter: {category}")
+            return
+        
+        print(f"\n💡 {status.title()} Ideas for '{project_name}':")
+        print("=" * 50)
+        
+        for idea in ideas:
+            idea_id, text, cat, priority, stat, created, tags, completed = idea
+            
+            priority_stars = "⭐" * priority
+            
+            print(f"\n#{idea_id} {priority_stars} [{cat}]")
+            print(f"   {text}")
+            if tags:
+                print(f"   🏷️  {tags}")
+            print(f"   📅 {created}")
+            if completed:
+                print(f"   ✅ Completed: {completed}")
+
+    def complete_idea(self, idea_id):
+        """Mark an idea as completed"""
+        idea = self.db.execute_query('''
+            SELECT idea_text, category FROM quick_ideas WHERE id = ?
+        ''', (idea_id,), fetch_one=True)
+        
+        if not idea:
+            print(f"❌ Idea #{idea_id} not found")
+            return
+        
+        self.db.execute_query('''
+            UPDATE quick_ideas 
+            SET status = 'completed', completed_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (idea_id,))
+        
+        print(f"✅ Completed idea: {idea[0]}")
+        print(f"   Category: {idea[1]}")
+
+    def delete_idea(self, idea_id):
+        """Delete an idea"""
+        idea = self.db.execute_query('''
+            SELECT idea_text FROM quick_ideas WHERE id = ?
+        ''', (idea_id,), fetch_one=True)
+        
+        if not idea:
+            print(f"❌ Idea #{idea_id} not found")
+            return
+        
+        self.db.execute_query('DELETE FROM quick_ideas WHERE id = ?', (idea_id,))
+        print(f"🗑️  Deleted idea: {idea[0]}")
+
+    def show_idea_stats(self):
+        """Show idea statistics and insights"""
+        project_name = self.get_current_project_name()
+        
+        stats = self.db.execute_query('''
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) as open,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                AVG(priority) as avg_priority
+            FROM quick_ideas 
+            WHERE project_name = ?
+        ''', (project_name,), fetch_one=True)
+        
+        categories = self.db.execute_query('''
+            SELECT category, COUNT(*), AVG(priority)
+            FROM quick_ideas 
+            WHERE project_name = ?
+            GROUP BY category
+            ORDER BY COUNT(*) DESC
+        ''', (project_name,), fetch=True)
+        
+        recent_count = self.db.execute_query('''
+            SELECT COUNT(*) 
+            FROM quick_ideas 
+            WHERE project_name = ? AND DATE(created_at) >= DATE('now', '-7 days')
+        ''', (project_name,), fetch_one=True)[0]
+        
+        print(f"\n💡 Ideas Dashboard for '{project_name}':")
+        print("=" * 45)
+        
+        if stats[0] == 0:
+            print("No ideas yet! Use 'devflow idea add' to capture your thoughts.")
+            return
+        
+        total, open_count, completed, avg_priority = stats
+        completion_rate = (completed / total * 100) if total > 0 else 0
+        
+        print(f"📊 Total Ideas: {total}")
+        print(f"🔓 Open: {open_count}")
+        print(f"✅ Completed: {completed} ({completion_rate:.1f}%)")
+        print(f"⭐ Average Priority: {avg_priority:.1f}/5")
+        print(f"📈 Added this week: {recent_count}")
+        
+        if categories:
+            print(f"\n📂 Categories:")
+            for cat, count, avg_pri in categories:
+                print(f"   {cat}: {count} ideas (avg priority: {avg_pri:.1f})")
+        
+        if completion_rate >= 70:
+            print(f"\n🎉 Great job! You're completing {completion_rate:.0f}% of your ideas!")
+        elif completion_rate >= 40:
+            print(f"\n👍 Good progress! {completion_rate:.0f}% completion rate.")
+        else:
+            print(f"\n💪 Keep working on those ideas! {completion_rate:.0f}% completed so far.")
+
+    def search_ideas(self, search_term):
+        """Search for ideas containing specific text"""
+        project_name = self.get_current_project_name()
+        
+        results = self.db.execute_query('''
+            SELECT id, idea_text, category, priority, status, created_at, tags
+            FROM quick_ideas 
+            WHERE project_name = ? 
+            AND (idea_text LIKE ? OR tags LIKE ? OR category LIKE ?)
+            ORDER BY priority DESC, created_at DESC
+        ''', (project_name, f'%{search_term}%', f'%{search_term}%', f'%{search_term}%'), fetch=True)
+        
+        print(f"\n🔍 Search results for '{search_term}':")
+        print("=" * 40)
+        
+        if not results:
+            print("No matching ideas found.")
+            return
+        
+        for idea in results:
+            idea_id, text, cat, priority, status, created, tags = idea
+            status_icon = "✅" if status == 'completed' else "🔓"
+            priority_stars = "⭐" * priority
+            
+            print(f"\n{status_icon} #{idea_id} {priority_stars} [{cat}]")
+            
+            highlighted_text = text.replace(search_term, f"**{search_term}**")
+            print(f"   {highlighted_text}")
+            
+            if tags and search_term.lower() in tags.lower():
+                print(f"   🏷️  {tags}")
+            print(f"   📅 {created}")
+
+    def brainstorm_session(self, topic=""):
+        """Start an interactive brainstorming session"""
+        project_name = self.get_current_project_name()
+        
+        print(f"\n🧠 Brainstorming Session for '{project_name}'")
+        if topic:
+            print(f"   Topic: {topic}")
+        print("=" * 50)
+        print("Enter ideas one by one. Type 'done' to finish, 'help' for commands.")
+        
+        idea_count = 0
+        
+        while True:
+            try:
+                user_input = input(f"\n💡 Idea #{idea_count + 1}: ").strip()
+                
+                if user_input.lower() == 'done':
+                    break
+                elif user_input.lower() == 'help':
+                    print("\nCommands:")
+                    print("  done - Finish brainstorming")
+                    print("  help - Show this help")
+                    print("  Just type your idea to add it!")
+                    continue
+                elif not user_input:
+                    continue
+                
+                category = 'brainstorm'
+                if topic:
+                    category = f'brainstorm-{topic.lower().replace(" ", "-")}'
+                
+                priority = 3
+                if any(word in user_input.lower() for word in ['urgent', 'important', 'critical', 'asap']):
+                    priority = 5
+                elif any(word in user_input.lower() for word in ['maybe', 'later', 'someday']):
+                    priority = 1
+                elif any(word in user_input.lower() for word in ['should', 'need to', 'must']):
+                    priority = 4
+                
+                self.add_idea(user_input, category, priority, f'brainstorm,{topic}' if topic else 'brainstorm')
+                idea_count += 1
+                
+            except KeyboardInterrupt:
+                print("\n\n🛑 Brainstorming session cancelled")
+                break
+        
+        print(f"\n🎉 Brainstorming complete! Added {idea_count} ideas.")
+        if idea_count > 0:
+            print("Use 'devflow idea list' to review your ideas.")
+
 def main():
     parser = argparse.ArgumentParser(
         description='DevFlow CLI - Comprehensive development workflow manager',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  devflow start                    # Start session for current directory
-  devflow start "My Project"       # Start named session
-  devflow stop                     # Stop current session
-  devflow status                   # Show session status
-  devflow stats                    # Show productivity stats
-  devflow template create webapp   # Create template from current dir
-  devflow template use webapp ./new-project  # Use template
-  devflow goals set 4              # Set 4-hour daily goal
-  devflow heatmap                  # Show activity heatmap
-  devflow export json              # Export data to JSON
+  devflow start
+  devflow start "My Project"
+  devflow stop
+  devflow status
+  devflow stats
+  devflow template create webapp
+  devflow template use webapp ./new-project
+  devflow goals set 4
+  devflow heatmap
+  devflow export json
         """
     )
     
@@ -2102,7 +2378,7 @@ Examples:
     
     export_parser = subparsers.add_parser('export', help='Export data')
     export_parser.add_argument('format', choices=['json', 'csv'], default='json', nargs='?')
-
+    
     subparsers.add_parser('achievements', help='Show earned achievements')
     
     notes_parser = subparsers.add_parser('notes', help='Session notes management')
@@ -2128,7 +2404,6 @@ Examples:
     
     subparsers.add_parser('insights', help='Show advanced analytics and insights')
     
-    # New powerful features
     habits_parser = subparsers.add_parser('habits', help='Habit tracking system')
     habits_subparsers = habits_parser.add_subparsers(dest='habits_action')
     
@@ -2168,7 +2443,7 @@ Examples:
     
     subparsers.add_parser('focus', help='Show focus and consistency analytics')
     subparsers.add_parser('review', help='Show daily review summary')
-
+    
     snapshot_parser = subparsers.add_parser('snapshot', help='Project snapshot and progress tracking')
     snapshot_parser.add_argument('--milestone', action='store_true', help='Mark this as a milestone snapshot')
     snapshot_parser.add_argument('--notes', default='', help='Add notes to the snapshot')
@@ -2177,7 +2452,7 @@ Examples:
     
     progress_parser = subparsers.add_parser('progress', help='Show visual progress chart')
     progress_parser.add_argument('--days', type=int, default=7, help='Number of days to show')
-
+    
     music_parser = subparsers.add_parser('music', help='Music productivity tracking')
     music_subparsers = music_parser.add_subparsers(dest='music_action')
     
@@ -2199,7 +2474,7 @@ Examples:
     
     music_subparsers.add_parser('analytics', help='Show music productivity analytics')
     music_subparsers.add_parser('recommend', help='Get music recommendations')
-
+    
     voice_parser = subparsers.add_parser('voice', help='Voice command management')
     voice_subparsers = voice_parser.add_subparsers(dest='voice_action')
     
@@ -2215,6 +2490,34 @@ Examples:
     voice_transcribe_parser = voice_subparsers.add_parser('transcribe', help='Voice-to-text transcription')
     voice_transcribe_parser.add_argument('--to-notes', action='store_true', help='Convert speech directly to session notes')
     voice_transcribe_parser.add_argument('--text', help='Text to simulate voice transcription')
+    
+    ideas_parser = subparsers.add_parser('idea', help='Quick ideas and brainstorming')
+    ideas_subparsers = ideas_parser.add_subparsers(dest='idea_action')
+    
+    add_idea_parser = ideas_subparsers.add_parser('add', help='Add a quick idea or TODO')
+    add_idea_parser.add_argument('text', help='The idea text')
+    add_idea_parser.add_argument('--category', default='general', help='Idea category')
+    add_idea_parser.add_argument('--priority', type=int, default=3, choices=range(1, 6), help='Priority level 1-5')
+    add_idea_parser.add_argument('--tags', default='', help='Comma-separated tags')
+    
+    list_ideas_parser = ideas_subparsers.add_parser('list', help='List ideas')
+    list_ideas_parser.add_argument('--category', help='Filter by category')
+    list_ideas_parser.add_argument('--status', default='open', choices=['open', 'completed', 'all'], help='Filter by status')
+    list_ideas_parser.add_argument('--limit', type=int, default=20, help='Maximum number of ideas to show')
+    
+    complete_idea_parser = ideas_subparsers.add_parser('complete', help='Mark idea as completed')
+    complete_idea_parser.add_argument('id', type=int, help='Idea ID to complete')
+    
+    delete_idea_parser = ideas_subparsers.add_parser('delete', help='Delete an idea')
+    delete_idea_parser.add_argument('id', type=int, help='Idea ID to delete')
+    
+    search_ideas_parser = ideas_subparsers.add_parser('search', help='Search ideas')
+    search_ideas_parser.add_argument('term', help='Search term')
+    
+    brainstorm_parser = ideas_subparsers.add_parser('brainstorm', help='Start interactive brainstorming session')
+    brainstorm_parser.add_argument('--topic', default='', help='Brainstorming topic')
+    
+    ideas_subparsers.add_parser('stats', help='Show ideas statistics')
     
     if len(sys.argv) == 1:
         print("DevFlow CLI - Development Workflow Manager")
@@ -2260,6 +2563,12 @@ Examples:
         print("  voice interactive  - Start voice command mode")
         print("  voice transcribe   - Voice-to-text for notes")
         print("  voice status       - Show voice settings")
+        print("  idea add <text>    - Add quick idea or TODO")
+        print("  idea list          - List your ideas")
+        print("  idea complete <id> - Mark idea as done")
+        print("  idea search <term> - Search through ideas")
+        print("  idea brainstorm    - Start brainstorming session")
+        print("  idea stats         - Show ideas dashboard")
         print("\nUse 'devflow <command> --help' for detailed help")
         return
     
@@ -2364,6 +2673,24 @@ Examples:
                 print("🎤 Voice transcription mode")
                 print("Use --to-notes to convert speech to session notes")
                 print("Example: devflow voice transcribe --to-notes")
+    elif args.command == 'idea':
+        if args.idea_action == 'add':
+            cli.add_idea(args.text, args.category, args.priority, args.tags)
+        elif args.idea_action == 'list':
+            cli.list_ideas(args.category, args.status, args.limit)
+        elif args.idea_action == 'complete':
+            cli.complete_idea(args.id)
+        elif args.idea_action == 'delete':
+            cli.delete_idea(args.id)
+        elif args.idea_action == 'search':
+            cli.search_ideas(args.term)
+        elif args.idea_action == 'brainstorm':
+            cli.brainstorm_session(args.topic)
+        elif args.idea_action == 'stats':
+            cli.show_idea_stats()
+    else:
+        print(f"Unknown command: {args.command}")
+        print("Use 'devflow --help' for available commands")
 
 if __name__ == '__main__':
     main()
