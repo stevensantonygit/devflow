@@ -9,6 +9,7 @@ import hashlib
 import subprocess
 import threading
 import re
+import random
 from pathlib import Path
 from collections import defaultdict, Counter
 
@@ -250,6 +251,111 @@ class DevFlowDB:
                 description TEXT,
                 color_code TEXT DEFAULT '#3498db',
                 usage_count INTEGER DEFAULT 0
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS mood_tracking (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER,
+                project_name TEXT NOT NULL,
+                mood_score INTEGER NOT NULL CHECK(mood_score >= 1 AND mood_score <= 10),
+                energy_level INTEGER NOT NULL CHECK(energy_level >= 1 AND energy_level <= 10),
+                stress_level INTEGER NOT NULL CHECK(stress_level >= 1 AND stress_level <= 10),
+                motivation_level INTEGER NOT NULL CHECK(motivation_level >= 1 AND motivation_level <= 10),
+                focus_difficulty TEXT DEFAULT 'normal',
+                notes TEXT DEFAULT '',
+                logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES sessions (id)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS code_patterns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                project_name TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                pattern_type TEXT NOT NULL,
+                pattern_count INTEGER DEFAULT 1,
+                severity TEXT DEFAULT 'info',
+                description TEXT,
+                detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES sessions (id)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS pomodoro_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER,
+                project_name TEXT NOT NULL,
+                pomodoro_type TEXT DEFAULT 'work',
+                duration_minutes INTEGER DEFAULT 25,
+                completed BOOLEAN DEFAULT FALSE,
+                interruptions INTEGER DEFAULT 0,
+                productivity_rating INTEGER CHECK(productivity_rating >= 1 AND productivity_rating <= 10),
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES sessions (id)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS daily_quotes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                quote_text TEXT NOT NULL,
+                author TEXT DEFAULT 'Unknown',
+                category TEXT DEFAULT 'motivation',
+                shown_date DATE,
+                user_rating INTEGER CHECK(user_rating >= 1 AND user_rating <= 5)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS break_suggestions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                project_name TEXT NOT NULL,
+                break_type TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                suggested_duration INTEGER DEFAULT 5,
+                suggested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                taken BOOLEAN DEFAULT FALSE,
+                effectiveness_rating INTEGER CHECK(effectiveness_rating >= 1 AND effectiveness_rating <= 5),
+                FOREIGN KEY (session_id) REFERENCES sessions (id)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS coding_style (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                project_name TEXT NOT NULL,
+                file_extension TEXT,
+                avg_line_length REAL DEFAULT 0.0,
+                avg_function_length REAL DEFAULT 0.0,
+                comment_ratio REAL DEFAULT 0.0,
+                variable_naming_style TEXT DEFAULT 'mixed',
+                indentation_style TEXT DEFAULT 'spaces',
+                complexity_preference TEXT DEFAULT 'moderate',
+                analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES sessions (id)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS project_comparisons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_a TEXT NOT NULL,
+                project_b TEXT NOT NULL,
+                comparison_type TEXT NOT NULL,
+                metric_name TEXT NOT NULL,
+                value_a REAL NOT NULL,
+                value_b REAL NOT NULL,
+                difference_percentage REAL DEFAULT 0.0,
+                compared_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(project_a, project_b, comparison_type, metric_name)
             )
         ''')
         
@@ -2324,6 +2430,534 @@ class DevFlowCLI:
         if idea_count > 0:
             print("Use 'devflow idea list' to review your ideas.")
 
+    def log_mood(self, project_name, mood_score, energy_level, stress_level, motivation_level, focus_difficulty='normal', notes=''):
+        """Log current mood and energy levels"""
+        if not self.current_session:
+            print("❌ No active session. Start a session first with 'devflow start'")
+            return
+            
+        session_id = self.current_session['id']
+        
+        self.db.execute_query('''
+            INSERT INTO mood_tracking 
+            (session_id, project_name, mood_score, energy_level, stress_level, motivation_level, focus_difficulty, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (session_id, project_name, mood_score, energy_level, stress_level, motivation_level, focus_difficulty, notes))
+        
+        avg_mood = (mood_score + energy_level + (11 - stress_level) + motivation_level) / 4
+        emoji = "😄" if avg_mood >= 8 else "😊" if avg_mood >= 6 else "😐" if avg_mood >= 4 else "😔"
+        
+        print(f"\n{emoji} Mood logged successfully!")
+        print(f"📊 Overall wellness score: {avg_mood:.1f}/10")
+        
+        if avg_mood < 5:
+            print("💡 Consider taking a break or doing some energizing activities!")
+        elif avg_mood >= 8:
+            print("🚀 Great energy! Perfect time for tackling challenging tasks!")
+
+    def show_mood_trends(self, project_name=None, days=7):
+        """Show mood trends over time"""
+        query = '''
+            SELECT DATE(logged_at) as date,
+                   AVG(mood_score) as avg_mood,
+                   AVG(energy_level) as avg_energy,
+                   AVG(stress_level) as avg_stress,
+                   AVG(motivation_level) as avg_motivation,
+                   COUNT(*) as entries
+            FROM mood_tracking
+            WHERE logged_at >= datetime('now', '-{} days')
+        '''.format(days)
+        
+        if project_name:
+            query += " AND project_name = ?"
+            params = (project_name,)
+        else:
+            params = ()
+        
+        query += " GROUP BY DATE(logged_at) ORDER BY date DESC"
+        
+        trends = self.db.execute_query(query, params, fetch=True)
+        
+        if not trends:
+            print("📊 No mood data found for the specified period.")
+            return
+        
+        print(f"\n📈 Mood Trends - Last {days} days")
+        print("=" * 60)
+        
+        for trend in trends:
+            date, mood, energy, stress, motivation, entries = trend
+            wellness = (mood + energy + (11 - stress) + motivation) / 4
+            emoji = "😄" if wellness >= 8 else "😊" if wellness >= 6 else "😐" if wellness >= 4 else "😔"
+            
+            print(f"{date}: {emoji} Wellness: {wellness:.1f} (M:{mood:.1f} E:{energy:.1f} S:{stress:.1f} Mo:{motivation:.1f}) [{entries} entries]")
+
+    def detect_code_patterns(self, project_name, file_path=None):
+        """Analyze code patterns and suggest improvements"""
+        if not file_path or not os.path.exists(file_path):
+            print("❌ Invalid file path provided")
+            return
+        
+        if not self.current_session:
+            print("❌ No active session. Start a session first with 'devflow start'")
+            return
+            
+        session_id = self.current_session['id']
+        patterns_found = []
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                lines = content.split('\n')
+                
+            # Analyze various patterns
+            line_lengths = [len(line) for line in lines if line.strip()]
+            avg_line_length = sum(line_lengths) / len(line_lengths) if line_lengths else 0
+            
+            long_lines = sum(1 for length in line_lengths if length > 120)
+            if long_lines > len(line_lengths) * 0.1:  # More than 10% long lines
+                patterns_found.append(("long_lines", long_lines, "warning", f"Found {long_lines} lines longer than 120 characters"))
+            
+            # Check for deeply nested code
+            max_indent = 0
+            for line in lines:
+                if line.strip():
+                    indent = len(line) - len(line.lstrip())
+                    max_indent = max(max_indent, indent)
+            
+            if max_indent > 32:  # More than 8 levels of indentation (assuming 4 spaces)
+                patterns_found.append(("deep_nesting", max_indent // 4, "warning", f"Maximum nesting level: {max_indent // 4}"))
+            
+            # Check function length (simple heuristic)
+            in_function = False
+            function_lines = 0
+            max_function_length = 0
+            
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith('def ') or stripped.startswith('function '):
+                    if in_function:
+                        max_function_length = max(max_function_length, function_lines)
+                    in_function = True
+                    function_lines = 1
+                elif in_function:
+                    if stripped and not stripped.startswith(' ') and not stripped.startswith('\t'):
+                        max_function_length = max(max_function_length, function_lines)
+                        in_function = False
+                        function_lines = 0
+                    else:
+                        function_lines += 1
+            
+            if max_function_length > 50:
+                patterns_found.append(("long_function", max_function_length, "info", f"Longest function: {max_function_length} lines"))
+            
+            # Save patterns to database
+            conn = sqlite3.connect(self.db.db_path)
+            cursor = conn.cursor()
+            for pattern_type, count, severity, description in patterns_found:
+                cursor.execute('''
+                    INSERT INTO code_patterns 
+                    (session_id, project_name, file_path, pattern_type, pattern_count, severity, description)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (session_id, project_name, file_path, pattern_type, count, severity, description))
+            
+            conn.commit()
+            conn.close()
+            
+            if patterns_found:
+                print(f"\n🔍 Code Pattern Analysis for {os.path.basename(file_path)}")
+                print("=" * 50)
+                for _, _, severity, description in patterns_found:
+                    icon = "⚠️ " if severity == "warning" else "ℹ️ "
+                    print(f"{icon} {description}")
+            else:
+                print(f"\n✅ No significant patterns detected in {os.path.basename(file_path)}")
+                
+        except Exception as e:
+            print(f"❌ Error analyzing file: {e}")
+
+    def start_pomodoro(self, project_name, duration=25, pomodoro_type='work'):
+        """Start a pomodoro timer session"""
+        if not self.current_session:
+            print("❌ No active session. Start a session first with 'devflow start'")
+            return
+            
+        session_id = self.current_session['id']
+        
+        conn = sqlite3.connect(self.db.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO pomodoro_sessions 
+            (session_id, project_name, pomodoro_type, duration_minutes)
+            VALUES (?, ?, ?, ?)
+        ''', (session_id, project_name, pomodoro_type, duration))
+        
+        pomodoro_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        print(f"\n🍅 Starting {duration}-minute {pomodoro_type} pomodoro for {project_name}")
+        print("Focus time begins now! Stay concentrated.")
+        
+        # Simple timer implementation
+        try:
+            start_time = time.time()
+            while True:
+                elapsed = int(time.time() - start_time)
+                remaining = (duration * 60) - elapsed
+                
+                if remaining <= 0:
+                    break
+                
+                mins, secs = divmod(remaining, 60)
+                print(f"\r⏰ Time remaining: {mins:02d}:{secs:02d}", end="", flush=True)
+                time.sleep(1)
+                
+            print(f"\n\n🎉 Pomodoro complete! Time for a break.")
+            
+            # Mark as completed
+            conn = sqlite3.connect(self.db.db_path)
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE pomodoro_sessions 
+                SET completed = TRUE, completed_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (pomodoro_id,))
+            conn.commit()
+            
+            # Ask for productivity rating
+            while True:
+                try:
+                    rating = int(input("\n📊 Rate your productivity (1-10): "))
+                    if 1 <= rating <= 10:
+                        cursor.execute('''
+                            UPDATE pomodoro_sessions 
+                            SET productivity_rating = ?
+                            WHERE id = ?
+                        ''', (rating, pomodoro_id))
+                        conn.commit()
+                        break
+                    else:
+                        print("Please enter a number between 1 and 10.")
+                except ValueError:
+                    print("Please enter a valid number.")
+            
+            conn.close()
+                    
+        except KeyboardInterrupt:
+            print(f"\n\n⏸️ Pomodoro interrupted after {elapsed // 60} minutes")
+            interruptions = 1
+            conn = sqlite3.connect(self.db.db_path)
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE pomodoro_sessions 
+                SET interruptions = ?, completed_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (interruptions, pomodoro_id))
+            conn.commit()
+            conn.close()
+
+    def show_daily_quote(self):
+        """Show an inspiring daily quote for developers"""
+        quotes = [
+            ("The best error message is the one that never shows up.", "Thomas Fuchs"),
+            ("Code is like humor. When you have to explain it, it's bad.", "Cory House"),
+            ("Programming isn't about what you know; it's about what you can figure out.", "Chris Pine"),
+            ("The most important property of a program is whether it accomplishes the intention of its user.", "C.A.R. Hoare"),
+            ("Simplicity is the ultimate sophistication.", "Leonardo da Vinci"),
+            ("Any fool can write code that a computer can understand. Good programmers write code that humans can understand.", "Martin Fowler"),
+            ("First, solve the problem. Then, write the code.", "John Johnson"),
+            ("Experience is the name everyone gives to their mistakes.", "Oscar Wilde"),
+            ("In order to be irreplaceable, one must always be different.", "Coco Chanel"),
+            ("Java is to JavaScript what car is to Carpet.", "Chris Heilmann"),
+            ("The best way to get a project done faster is to start sooner.", "Jim Highsmith"),
+            ("Perfection is achieved not when there is nothing more to add, but rather when there is nothing more to take away.", "Antoine de Saint-Exupery"),
+            ("Ruby is rubbish! PHP is phpantastic!", "Nikita Popov"),
+            ("The computer was born to solve problems that did not exist before.", "Bill Gates"),
+            ("Don't comment bad code—rewrite it.", "Brian Kernighan"),
+            ("Debugging is twice as hard as writing the code in the first place.", "Brian Kernighan"),
+            ("Walking on water and developing software from a specification are easy if both are frozen.", "Edward V. Berard"),
+            ("It's not a bug—it's an undocumented feature.", "Anonymous"),
+            ("A good programmer is someone who always looks both ways before crossing a one-way street.", "Doug Linder"),
+            ("Programming is the art of telling another human being what one wants the computer to do.", "Donald Knuth")
+        ]
+        
+        today = datetime.datetime.now().date()
+        
+        # Check if we already showed a quote today
+        shown_quote = self.db.execute_query('''
+            SELECT quote_text, author FROM daily_quotes 
+            WHERE shown_date = ? AND user_rating IS NOT NULL
+            ORDER BY RANDOM() LIMIT 1
+        ''', (today,), fetch_one=True)
+        
+        if shown_quote:
+            quote_text, author = shown_quote
+        else:
+            # Select a random quote
+            quote_text, author = random.choice(quotes)
+            
+            # Save it to database
+            self.db.execute_query('''
+                INSERT OR REPLACE INTO daily_quotes (quote_text, author, shown_date)
+                VALUES (?, ?, ?)
+            ''', (quote_text, author, today))
+        
+        print(f"\n💡 Daily Developer Quote")
+        print("=" * 50)
+        print(f'"{quote_text}"')
+        print(f"   — {author}")
+        print("")
+
+    def suggest_break(self, project_name, session_duration_minutes):
+        """Suggest appropriate breaks based on coding duration and patterns"""
+        if not self.current_session:
+            print("❌ No active session. Start a session first with 'devflow start'")
+            return
+            
+        session_id = self.current_session['id']
+        
+        break_suggestions = []
+        
+        if session_duration_minutes >= 120:  # 2+ hours
+            break_suggestions.append(("long_break", "Take a longer break - go for a walk or have lunch", 30))
+        elif session_duration_minutes >= 60:  # 1+ hour
+            break_suggestions.append(("medium_break", "Take a medium break - stretch, hydrate, rest your eyes", 15))
+        elif session_duration_minutes >= 25:  # 25+ minutes (pomodoro)
+            break_suggestions.append(("short_break", "Take a short break - look away from screen, deep breaths", 5))
+        
+        # Check recent mood if available
+        conn = sqlite3.connect(self.db.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT stress_level, energy_level FROM mood_tracking 
+            WHERE project_name = ? AND logged_at >= datetime('now', '-2 hours')
+            ORDER BY logged_at DESC LIMIT 1
+        ''', (project_name,))
+        
+        recent_mood = cursor.fetchone()
+        conn.close()
+        if recent_mood:
+            stress, energy = recent_mood
+            if stress >= 8:
+                break_suggestions.append(("stress_break", "High stress detected - try meditation or calm music", 10))
+            if energy <= 3:
+                break_suggestions.append(("energy_break", "Low energy - have a healthy snack or do light exercise", 10))
+        
+        if break_suggestions:
+            print(f"\n🧘 Break Suggestions for {project_name}")
+            print("=" * 40)
+            
+            for break_type, reason, duration in break_suggestions:
+                print(f"⏱️  {reason} ({duration} min)")
+                
+                # Save suggestion to database
+                conn = sqlite3.connect(self.db.db_path)
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO break_suggestions 
+                    (session_id, project_name, break_type, reason, suggested_duration)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (session_id, project_name, break_type, reason, duration))
+            
+            conn.commit()
+            conn.close()
+            
+            choice = input("\nWould you like to take a break now? (y/N): ").lower()
+            if choice == 'y':
+                print("✨ Great choice! Take care of yourself.")
+                return True
+        
+        return False
+
+    def analyze_coding_style(self, project_name, file_path=None):
+        """Analyze and learn user's coding style preferences"""
+        if not file_path or not os.path.exists(file_path):
+            print("❌ Invalid file path provided")
+            return
+        
+        if not self.current_session:
+            print("❌ No active session. Start a session first with 'devflow start'")
+            return
+            
+        session_id = self.current_session['id']
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                lines = content.split('\n')
+            
+            # Analyze style patterns
+            non_empty_lines = [line for line in lines if line.strip()]
+            if not non_empty_lines:
+                return
+            
+            # Line length analysis
+            line_lengths = [len(line) for line in non_empty_lines]
+            avg_line_length = sum(line_lengths) / len(line_lengths)
+            
+            # Function length analysis (simple heuristic)
+            function_lengths = []
+            current_function_length = 0
+            in_function = False
+            
+            for line in lines:
+                stripped = line.strip()
+                if any(stripped.startswith(prefix) for prefix in ['def ', 'function ', 'async def ']):
+                    if in_function and current_function_length > 0:
+                        function_lengths.append(current_function_length)
+                    in_function = True
+                    current_function_length = 1
+                elif in_function:
+                    if stripped and not line.startswith(' ') and not line.startswith('\t'):
+                        function_lengths.append(current_function_length)
+                        in_function = False
+                        current_function_length = 0
+                    else:
+                        current_function_length += 1
+            
+            avg_function_length = sum(function_lengths) / len(function_lengths) if function_lengths else 0
+            
+            # Comment analysis
+            comment_lines = sum(1 for line in lines if line.strip().startswith('#') or line.strip().startswith('//') or line.strip().startswith('*'))
+            comment_ratio = comment_lines / len(non_empty_lines) if non_empty_lines else 0
+            
+            # Indentation analysis
+            indent_chars = []
+            for line in non_empty_lines:
+                if len(line) > len(line.lstrip()):
+                    leading = line[:len(line) - len(line.lstrip())]
+                    if leading:
+                        indent_chars.append(leading[0])
+            
+            indentation_style = "spaces" if indent_chars and indent_chars[0] == ' ' else "tabs" if indent_chars and indent_chars[0] == '\t' else "mixed"
+            
+            # Variable naming analysis (simple)
+            import re
+            variables = re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', content)
+            snake_case = sum(1 for var in variables if '_' in var and var.islower())
+            camel_case = sum(1 for var in variables if any(c.isupper() for c in var[1:]) and '_' not in var)
+            
+            if snake_case > camel_case * 2:
+                variable_naming_style = "snake_case"
+            elif camel_case > snake_case * 2:
+                variable_naming_style = "camelCase"
+            else:
+                variable_naming_style = "mixed"
+            
+            # Complexity preference
+            complexity_indicators = content.count('if') + content.count('for') + content.count('while') + content.count('try')
+            complexity_preference = "high" if complexity_indicators > len(non_empty_lines) * 0.3 else "low" if complexity_indicators < len(non_empty_lines) * 0.1 else "moderate"
+            
+            # Save analysis
+            self.db.execute_query('''
+                INSERT INTO coding_style 
+                (session_id, project_name, file_extension, avg_line_length, avg_function_length, 
+                 comment_ratio, variable_naming_style, indentation_style, complexity_preference)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (session_id, project_name, os.path.splitext(file_path)[1], avg_line_length, 
+                  avg_function_length, comment_ratio, variable_naming_style, indentation_style, complexity_preference))
+            
+            print(f"\n📊 Coding Style Analysis for {os.path.basename(file_path)}")
+            print("=" * 50)
+            print(f"📏 Average line length: {avg_line_length:.1f} characters")
+            print(f"🔧 Average function length: {avg_function_length:.1f} lines")
+            print(f"💬 Comment ratio: {comment_ratio:.1%}")
+            print(f"🔤 Variable naming: {variable_naming_style}")
+            print(f"📐 Indentation: {indentation_style}")
+            print(f"🧠 Complexity preference: {complexity_preference}")
+            
+        except Exception as e:
+            print(f"❌ Error analyzing coding style: {e}")
+
+    def compare_projects(self, project_a, project_b):
+        """Compare productivity metrics between two projects"""
+        conn = sqlite3.connect(self.db.db_path)
+        cursor = conn.cursor()
+        
+        # Get session statistics for both projects
+        projects_data = {}
+        
+        for project in [project_a, project_b]:
+            cursor.execute('''
+                SELECT 
+                    COUNT(*) as session_count,
+                    AVG(CAST((julianday(end_time) - julianday(start_time)) * 1440 AS REAL)) as avg_duration,
+                    SUM(CAST((julianday(end_time) - julianday(start_time)) * 1440 AS REAL)) as total_duration,
+                    COUNT(DISTINCT DATE(start_time)) as active_days
+                FROM sessions 
+                WHERE project_name = ? AND end_time IS NOT NULL
+            ''', (project,))
+            
+            stats = cursor.fetchone()
+            if stats[0] > 0:  # Has sessions
+                projects_data[project] = {
+                    'sessions': stats[0],
+                    'avg_duration': stats[1] or 0,
+                    'total_duration': stats[2] or 0,
+                    'active_days': stats[3]
+                }
+            else:
+                projects_data[project] = {
+                    'sessions': 0,
+                    'avg_duration': 0,
+                    'total_duration': 0,
+                    'active_days': 0
+                }
+        
+        # Calculate comparisons and save to database
+        comparisons = []
+        
+        for metric in ['sessions', 'avg_duration', 'total_duration', 'active_days']:
+            value_a = projects_data[project_a][metric]
+            value_b = projects_data[project_b][metric]
+            
+            if value_b > 0:
+                diff_percentage = ((value_a - value_b) / value_b) * 100
+            else:
+                diff_percentage = 100 if value_a > 0 else 0
+            
+            comparisons.append((metric, value_a, value_b, diff_percentage))
+            
+            # Save to database
+            cursor.execute('''
+                INSERT OR REPLACE INTO project_comparisons 
+                (project_a, project_b, comparison_type, metric_name, value_a, value_b, difference_percentage)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (project_a, project_b, 'productivity', metric, value_a, value_b, diff_percentage))
+        
+        conn.commit()
+        conn.close()
+        
+        # Display comparison
+        print(f"\n📊 Project Comparison: {project_a} vs {project_b}")
+        print("=" * 60)
+        
+        for metric, value_a, value_b, diff_pct in comparisons:
+            metric_names = {
+                'sessions': 'Total Sessions',
+                'avg_duration': 'Avg Session Duration (min)',
+                'total_duration': 'Total Duration (min)',
+                'active_days': 'Active Days'
+            }
+            
+            name = metric_names[metric]
+            arrow = "📈" if diff_pct > 0 else "📉" if diff_pct < 0 else "➡️"
+            
+            if metric == 'avg_duration':
+                print(f"{name:25}: {value_a:6.1f} vs {value_b:6.1f} {arrow} {diff_pct:+.1f}%")
+            else:
+                print(f"{name:25}: {value_a:6.0f} vs {value_b:6.0f} {arrow} {diff_pct:+.1f}%")
+        
+        # Summary
+        total_diff = sum(comp[3] for comp in comparisons) / len(comparisons)
+        if total_diff > 10:
+            print(f"\n🏆 {project_a} is performing better overall!")
+        elif total_diff < -10:
+            print(f"\n🏆 {project_b} is performing better overall!")
+        else:
+            print(f"\n🤝 Both projects have similar productivity levels!")
+
 def main():
     parser = argparse.ArgumentParser(
         description='DevFlow CLI - Comprehensive development workflow manager',
@@ -2519,6 +3153,52 @@ Examples:
     
     ideas_subparsers.add_parser('stats', help='Show ideas statistics')
     
+    # Mood tracking
+    mood_parser = subparsers.add_parser('mood', help='Mood and wellness tracking')
+    mood_subparsers = mood_parser.add_subparsers(dest='mood_action')
+    
+    log_mood_parser = mood_subparsers.add_parser('log', help='Log current mood and energy levels')
+    log_mood_parser.add_argument('project', help='Project name')
+    log_mood_parser.add_argument('mood', type=int, help='Mood score (1-10)')
+    log_mood_parser.add_argument('energy', type=int, help='Energy level (1-10)')
+    log_mood_parser.add_argument('stress', type=int, help='Stress level (1-10)')
+    log_mood_parser.add_argument('motivation', type=int, help='Motivation level (1-10)')
+    log_mood_parser.add_argument('--focus', default='normal', help='Focus difficulty level')
+    log_mood_parser.add_argument('--notes', default='', help='Additional notes')
+    
+    mood_trends_parser = mood_subparsers.add_parser('trends', help='Show mood trends')
+    mood_trends_parser.add_argument('--project', help='Project name to filter by')
+    mood_trends_parser.add_argument('--days', type=int, default=7, help='Number of days to analyze')
+    
+    # Code pattern detection
+    patterns_parser = subparsers.add_parser('patterns', help='Code pattern analysis')
+    patterns_parser.add_argument('project', help='Project name')
+    patterns_parser.add_argument('file', help='File path to analyze')
+    
+    # Pomodoro timer
+    pomodoro_parser = subparsers.add_parser('pomodoro', help='Pomodoro timer sessions')
+    pomodoro_parser.add_argument('project', help='Project name')
+    pomodoro_parser.add_argument('--duration', type=int, default=25, help='Duration in minutes')
+    pomodoro_parser.add_argument('--type', default='work', help='Type of pomodoro (work/break)')
+    
+    # Daily quotes
+    subparsers.add_parser('quote', help='Show inspiring daily quote')
+    
+    # Break suggestions
+    break_parser = subparsers.add_parser('break', help='Get break suggestions')
+    break_parser.add_argument('project', help='Project name')
+    break_parser.add_argument('duration', type=int, help='Current session duration in minutes')
+    
+    # Coding style analysis
+    style_parser = subparsers.add_parser('style', help='Analyze coding style')
+    style_parser.add_argument('project', help='Project name')
+    style_parser.add_argument('file', help='File path to analyze')
+    
+    # Project comparison
+    compare_parser = subparsers.add_parser('compare', help='Compare project productivity')
+    compare_parser.add_argument('project_a', help='First project to compare')
+    compare_parser.add_argument('project_b', help='Second project to compare')
+    
     if len(sys.argv) == 1:
         print("DevFlow CLI - Development Workflow Manager")
         print("=" * 50)
@@ -2569,6 +3249,18 @@ Examples:
         print("  idea search <term> - Search through ideas")
         print("  idea brainstorm    - Start brainstorming session")
         print("  idea stats         - Show ideas dashboard")
+        print("")
+        print("🧠 WELLNESS & PRODUCTIVITY:")
+        print("  mood log <project> <mood> <energy> <stress> <motivation> - Log mood (1-10 scale)")
+        print("  mood trends        - Show mood trends over time")
+        print("  pomodoro <project> - Start pomodoro timer")
+        print("  quote             - Show daily inspiring quote")
+        print("  break <project> <duration> - Get break suggestions")
+        print("")
+        print("🔍 CODE ANALYSIS:")
+        print("  patterns <project> <file> - Analyze code patterns")
+        print("  style <project> <file>    - Analyze coding style")
+        print("  compare <proj1> <proj2>   - Compare project productivity")
         print("\nUse 'devflow <command> --help' for detailed help")
         return
     
@@ -2688,6 +3380,31 @@ Examples:
             cli.brainstorm_session(args.topic)
         elif args.idea_action == 'stats':
             cli.show_idea_stats()
+    
+    elif args.command == 'mood':
+        if args.mood_action == 'log':
+            cli.log_mood(args.project, args.mood, args.energy, args.stress, args.motivation, args.focus, args.notes)
+        elif args.mood_action == 'trends':
+            cli.show_mood_trends(args.project, args.days)
+    
+    elif args.command == 'patterns':
+        cli.detect_code_patterns(args.project, args.file)
+    
+    elif args.command == 'pomodoro':
+        cli.start_pomodoro(args.project, args.duration, args.type)
+    
+    elif args.command == 'quote':
+        cli.show_daily_quote()
+    
+    elif args.command == 'break':
+        cli.suggest_break(args.project, args.duration)
+    
+    elif args.command == 'style':
+        cli.analyze_coding_style(args.project, args.file)
+    
+    elif args.command == 'compare':
+        cli.compare_projects(args.project_a, args.project_b)
+    
     else:
         print(f"Unknown command: {args.command}")
         print("Use 'devflow --help' for available commands")

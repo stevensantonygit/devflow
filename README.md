@@ -30,6 +30,13 @@ A comprehensive development workflow manager that helps developers track coding 
 - **Progress Charts**: See your project growth over time with file/line counts
 - **Quick Ideas & Brainstorming**: Capture thoughts, TODOs, and brainstorm sessions during coding
 - **Idea Management**: Organize, prioritize, search, and track completion of development ideas
+- **Mood & Wellness Tracking**: Monitor mental state and energy levels during coding sessions
+- **Code Pattern Detection**: Automated analysis of code quality patterns and improvement suggestions
+- **Pomodoro Timer Integration**: Built-in focused work sessions with productivity tracking
+- **Daily Developer Quotes**: Inspiring daily quotes to boost motivation and mindset
+- **Smart Break Suggestions**: Personalized break recommendations based on coding patterns and mood
+- **Coding Style Analysis**: Learn and track your personal coding style preferences over time
+- **Project Productivity Comparison**: Compare efficiency metrics between different projects
 - **Cross-Platform**: Works on Linux, macOS, and Windows
 - **Self-Contained**: No external dependencies required
 
@@ -110,6 +117,18 @@ py devflow.py
 - `devflow idea search "TERM"` - Search ideas by text, tags, or category
 - `devflow idea brainstorm [--topic "TOPIC"]` - Start interactive brainstorming session
 - `devflow idea stats` - Show ideas dashboard with completion rates and insights
+
+### Wellness & Productivity Enhancement
+- `devflow mood log <project> <mood> <energy> <stress> <motivation> [--focus LEVEL] [--notes TEXT]` - Log mood and energy levels (1-10 scale)
+- `devflow mood trends [--project NAME] [--days N]` - Show mood trends over time with wellness analytics
+- `devflow pomodoro <project> [--duration N] [--type work|break]` - Start focused pomodoro timer session
+- `devflow quote` - Show inspiring daily developer quote
+- `devflow break <project> <duration>` - Get personalized break suggestions based on session and mood
+
+### Code Analysis & Style
+- `devflow patterns <project> <file>` - Analyze code patterns and detect quality issues
+- `devflow style <project> <file>` - Analyze and learn your coding style preferences
+- `devflow compare <project1> <project2>` - Compare productivity metrics between projects
 
 ### Project Management
 - `devflow template create <name>` - Create a new project template
@@ -351,6 +370,56 @@ Unlock achievements for coding milestones:
 - **Idea Management Analytics**: Track idea generation patterns, completion rates, and productivity correlations
 - **Brainstorming Insights**: Analyze creative session patterns and idea implementation success rates
 - **Development Planning Intelligence**: Smart categorization and prioritization of development tasks
+
+### Developer Wellness & Productivity Features
+Experience comprehensive wellness tracking integrated with your coding workflow:
+
+```bash
+# Track your mental state and energy levels during coding
+devflow mood log MyProject 8 7 3 9 --focus normal --notes "Feeling productive today"
+
+# View mood trends over time to understand patterns
+devflow mood trends --project MyProject --days 14
+
+# Use integrated pomodoro timer for focused work sessions
+devflow pomodoro MyProject --duration 25 --type work
+
+# Get daily inspiration with developer quotes
+devflow quote
+
+# Get personalized break suggestions based on your coding patterns
+devflow break MyProject 90  # After 90 minutes of coding
+```
+
+**Wellness Features:**
+- **Mood Tracking**: Monitor mood, energy, stress, and motivation levels (1-10 scale)
+- **Wellness Analytics**: See correlation between mental state and coding productivity
+- **Pomodoro Integration**: Built-in timer with productivity rating and interruption tracking
+- **Daily Motivation**: Curated developer quotes to inspire and motivate
+- **Smart Break System**: Personalized break recommendations based on session duration and mood
+- **Mental Health Insights**: Track patterns to identify optimal coding conditions
+
+### Code Quality & Style Analysis
+Automated analysis to improve your coding practices and understand your development patterns:
+
+```bash
+# Analyze code patterns and detect potential issues
+devflow patterns MyProject src/main.py
+
+# Analyze your personal coding style preferences
+devflow style MyProject src/components/button.js
+
+# Compare productivity between different projects
+devflow compare "Frontend Project" "Backend API"
+```
+
+**Code Analysis Features:**
+- **Pattern Detection**: Automatically identifies long lines, deep nesting, and complex functions
+- **Style Learning**: Tracks your coding preferences (line length, naming conventions, indentation)
+- **Quality Insights**: Provides suggestions for code improvement and best practices
+- **Project Comparison**: Compare productivity metrics, session counts, and coding efficiency
+- **Historical Tracking**: Monitor how your coding style evolves over time
+- **Personalized Recommendations**: Tailored suggestions based on your coding patterns
 
 ---
 
