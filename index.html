@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevFlow CLI - Interactive Demo</title>
+    <style>
+        body {
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            background-color: #1a1a1a;
+            color: #00ff00;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #00ff00;
+        }
+        .terminal {
+            background-color: #000;
+            border: 2px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            min-height: 400px;
+            overflow-y: auto;
+        }
+        .input-section {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        input[type="text"] {
+            flex: 1;
+            background-color: #333;
+            color: #00ff00;
+            border: 1px solid #555;
+            padding: 10px;
+            font-family: inherit;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        button:hover {
+            background-color: #0052a3;
+        }
+        .output {
+            white-space: pre-wrap;
+            margin: 10px 0;
+        }
+        .examples {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .example-btn {
+            background-color: #333;
+            color: #00ff00;
+            border: 1px solid #555;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .example-btn:hover {
+            background-color: #444;
+        }
+        .prompt {
+            color: #ffff00;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>DevFlow CLI - Interactive Demo</h1>
+            <p>A comprehensive development workflow manager - try it out below!</p>
+        </div>
+
+        <div class="examples">
+            <button class="example-btn" onclick="runExample('quote')">📝 Daily Quote</button>
+            <button class="example-btn" onclick="runExample('start DemoProject')">▶️ Start Session</button>
+            <button class="example-btn" onclick="runExample('status')">📊 Check Status</button>
+            <button class="example-btn" onclick="runExample('mood log DemoProject 8 7 4 9')">😊 Log Mood</button>
+            <button class="example-btn" onclick="runExample('mood trends')">📈 Mood Trends</button>
+            <button class="example-btn" onclick="runExample('achievements')">🏆 Achievements</button>
+            <button class="example-btn" onclick="runExample('idea add &quot;Add dark mode&quot; --category feature --priority 4')">💡 Add Idea</button>
+            <button class="example-btn" onclick="runExample('idea list')">📋 List Ideas</button>
+            <button class="example-btn" onclick="runExample('stop')">⏹️ Stop Session</button>
+        </div>
+
+        <div class="input-section">
+            <input type="text" id="commandInput" placeholder="Enter DevFlow command (e.g., 'quote', 'start MyProject', 'status')" />
+            <button onclick="runCommand()">Run Command</button>
+        </div>
+
+        <div class="terminal" id="terminal">
+            <div class="output">
+<span class="prompt">devflow@demo:~$</span> Welcome to DevFlow CLI Interactive Demo!
+<span style="color: #00ccff;">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+
+🎯 <strong>Try these features:</strong>
+• <strong>quote</strong> - Get inspiring developer quotes
+• <strong>start [project]</strong> - Begin coding session tracking
+• <strong>mood log [project] [mood] [energy] [stress] [motivation]</strong> - Track wellness (1-10 scale)
+• <strong>idea add "your idea"</strong> - Capture development thoughts
+• <strong>achievements</strong> - View unlocked coding milestones
+
+<span style="color: #00ccff;">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+<span style="color: #ffaa00;">💡 Tip:</span> Click the example buttons above or type commands manually!
+
+            </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 30px; color: #888;">
+            <p>🔗 <strong>GitHub:</strong> <a href="https://github.com/stevensantonygit/devflow" style="color: #00ccff;">stevensantonygit/devflow</a></p>
+            <p>Built with ❤️ for developer productivity</p>
+        </div>
+    </div>
+
+    <script>
+        function runCommand() {
+            const input = document.getElementById('commandInput');
+            const command = input.value.trim();
+            if (!command) return;
+
+            addToTerminal(`<span class="prompt">devflow@demo:~$</span> ${command}`);
+            input.value = '';
+
+            fetch('/run', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ command: command })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const output = data.output || 'No output';
+                const color = data.success ? '#00ff00' : '#ff6666';
+                addToTerminal(`<span style="color: ${color};">${output}</span>`);
+            })
+            .catch(error => {
+                addToTerminal(`<span style="color: #ff6666;">Error: ${error.message}</span>`);
+            });
+        }
+
+        function runExample(command) {
+            document.getElementById('commandInput').value = command;
+            runCommand();
+        }
+
+        function addToTerminal(text) {
+            const terminal = document.getElementById('terminal');
+            const output = document.createElement('div');
+            output.className = 'output';
+            output.innerHTML = text;
+            terminal.appendChild(output);
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        document.getElementById('commandInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                runCommand();
+            }
+        });
+    </script>
+</body>
+</html>
